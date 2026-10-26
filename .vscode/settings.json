@@ -1,0 +1,14 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python-envs.defaultPackageManager": "ms-python.python:pip",
+    "claudeCode.environmentVariables": [
+    {
+        "name": "ANTHROPIC_BASE_URL",
+        "value": "http://localhost:1234"
+    },
+    {
+        "name": "ANTHROPIC_AUTH_TOKEN",
+        "value": "lmstudio"
+    }
+]
+}
