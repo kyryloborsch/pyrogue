@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Aider
+.aider*
+
+# Editor / OS
+.vscode/
+.DS_Store
