@@ -33,8 +33,11 @@ A boss level has no stairs down until the boss falls. At half HP, each boss chan
 
 ## Features
 
-- **Pokémon-style battles.** Bump into a monster to start a battle. Moves have types, accuracy, PP and status effects (burn, poison, freeze, sleep, paralyze), and some types are strong or weak against certain kinds of monsters. Easy fights can be skipped.
-- **Spells.** Rare spell scrolls teach new moves such as Fire Bolt, Heal, Thunder or Drain Life. You can know up to 6 moves.
+- **Pokémon-style battles.** Bump into a monster to start a battle. Moves have types, accuracy, mana costs and status effects (burn, poison, freeze, sleep, paralyze, confusion). Some types are strong or weak against certain kinds of monsters, but a weak spot only deals 1.5× damage, so it helps without deciding the fight. Easy fights can be skipped.
+- **Mana.** Every spell costs MP from a single pool. STRIKE and POWER SMASH are free. MP slowly comes back as you explore and rest, refills when you level up, and can be restored with a potion of mana, a healer, or the MEDITATE spell.
+- **Spells.** Rare spell scrolls teach 12 spells, from Fire Bolt and Heal to Chain Lightning (hits every foe), Bewilder (confuses a foe) and Meditate (restores MP). You can know 4 spells at once. To learn a fifth, you forget one, or keep the scroll for later. `S` shows your moves and what your weapon adds to them.
+- **Physical and magic weapons.** Swords, maces and spears make STRIKE and POWER SMASH hit harder. Wands and staffs barely hurt in melee, but add their power to every attack spell. Enchanting a weapon improves whichever of these it does.
+- **Event log.** Every message, including each line of battle text, goes into a scrollable log (`m`, or `M` during a battle), stamped with the turn number and grouped by depth. In a terminal wider than 104 columns or taller than 28 rows, the latest events also stay on screen in a side or bottom panel.
 - **Friendly characters (`&`).** Walk into one to talk. The sage gives advice, merchants sell items for gold, healers patch you up, and bards play for you.
 - **Classic roguelike systems.** Unidentified potions and scrolls, hidden traps, hunger, weapons and armor you can enchant, and a tombstone when you die.
 
@@ -45,7 +48,7 @@ Press `?` in the game for the full list.
 ```
 Movement            y k u        Shift + direction    run
 (or arrows/numpad)   \|/         . or 5               rest one turn
-                    h-@-l        z                    rest until healed
+                    h-@-l        z                    rest until HP & MP full
                      /|\         s                    search for traps
                     b j n        >                    go down stairs
 ```
@@ -53,14 +56,14 @@ Movement            y k u        Shift + direction    run
 | Key       | Action             | Key | Action                          |
 |-----------|--------------------|-----|---------------------------------|
 | `,` / `g` | pick up item       | `i` | inventory                       |
-| `q`       | quaff a potion     | `m` | message history                 |
+| `q`       | quaff a potion     | `m` | event log                       |
 | `r`       | read a scroll      | `A` | toggle auto-skip of easy battles |
 | `e`       | eat food           | `?` | help                            |
 | `w`       | wield a weapon     | `Q` | quit                            |
-| `W`       | wear armor         |     |                                 |
+| `W`       | wear armor         | `S` | spells & weapon bonuses         |
 | `d`       | drop an item       |     |                                 |
 
-In menus, arrows or `hjkl` move the cursor, `Enter`/`Space`/`z` choose, and `Esc`/`x` go back. In battle, `S` skips an easy fight.
+In menus, arrows or `hjkl` move the cursor, `Enter`/`Space`/`z` choose, and `Esc`/`x` go back. In battle, `S` skips an easy fight and `M` opens the event log.
 
 ## Map symbols
 

@@ -177,60 +177,99 @@ MONSTER_INFO = {
     'frost wyrm':   ('dragon',    'CLAW',       'FROST BREATH'),
 }
 
-# Player battle moves. Physical moves use the wielded weapon; magic moves roll d6s.
-# effect: (status, % chance) put on the target by a hit. heal: d8s healed (plus 2 per
-# level). barrier: rounds of halved damage. drain: share of the damage healed.
+# Player battle moves. Physical moves (mult) cost no mana and swing the wielded weapon;
+# spells cost mana (mp) and roll d6s, plus the power of a magic weapon. effect: (status,
+# % chance) put on the target by a hit. heal: d8s healed (plus 2 per level). barrier:
+# rounds of halved damage. drain: share of the damage healed. mana: MP restored (plus 1
+# per 2 levels). all: hits every foe in the battle.
 MOVES = {
-    'STRIKE':      {'type': 'normal',  'acc': 95,  'pp': None, 'mult': 1.0},
-    'POWER SMASH': {'type': 'normal',  'acc': 70,  'pp': 10,   'mult': 1.8},
-    'FIRE BOLT':   {'type': 'fire',    'acc': 90,  'pp': 8,  'dice': 2, 'effect': ('burn', 25)},
-    'FROST SHARD': {'type': 'ice',     'acc': 90,  'pp': 8,  'dice': 2, 'effect': ('freeze', 15)},
-    'VENOM':       {'type': 'poison',  'acc': 95,  'pp': 10, 'dice': 1, 'effect': ('poison', 80)},
-    'HEAL':        {'type': 'support', 'acc': 100, 'pp': 5,  'heal': 3},
-    'SLEEP':       {'type': 'status',  'acc': 75,  'pp': 6,  'effect': ('sleep', 100)},
-    'HOLY LIGHT':  {'type': 'holy',    'acc': 100, 'pp': 5,  'dice': 3},
-    'THUNDER':     {'type': 'storm',   'acc': 80,  'pp': 6,  'dice': 3, 'effect': ('paralyze', 30)},
-    'BARRIER':     {'type': 'support', 'acc': 100, 'pp': 4,  'barrier': 4},
-    'DRAIN LIFE':  {'type': 'dark',    'acc': 95,  'pp': 6,  'dice': 2, 'drain': 0.5},
+    'STRIKE':      {'type': 'normal',  'acc': 95,  'mp': 0, 'mult': 1.0},
+    'POWER SMASH': {'type': 'normal',  'acc': 70,  'mp': 0, 'mult': 1.5},
+    'FIRE BOLT':   {'type': 'fire',    'acc': 90,  'mp': 3, 'dice': 2, 'effect': ('burn', 25)},
+    'FROST SHARD': {'type': 'ice',     'acc': 90,  'mp': 3, 'dice': 2, 'effect': ('freeze', 15)},
+    'VENOM':       {'type': 'poison',  'acc': 95,  'mp': 3, 'dice': 1, 'effect': ('poison', 80)},
+    'BEWILDER':    {'type': 'status',  'acc': 85,  'mp': 3, 'effect': ('confuse', 100)},
+    'HEAL':        {'type': 'support', 'acc': 100, 'mp': 5, 'heal': 3},
+    'MEDITATE':    {'type': 'support', 'acc': 100, 'mp': 0, 'mana': 4},
+    'SLEEP':       {'type': 'status',  'acc': 75,  'mp': 4, 'effect': ('sleep', 100)},
+    'HOLY LIGHT':  {'type': 'holy',    'acc': 100, 'mp': 5, 'dice': 3},
+    'THUNDER':     {'type': 'storm',   'acc': 80,  'mp': 5, 'dice': 3, 'effect': ('paralyze', 30)},
+    'CHAIN LIGHTNING': {'type': 'storm', 'acc': 85, 'mp': 8, 'dice': 2, 'all': True,
+                        'effect': ('paralyze', 15)},
+    'BARRIER':     {'type': 'support', 'acc': 100, 'mp': 4, 'barrier': 4},
+    'DRAIN LIFE':  {'type': 'dark',    'acc': 95,  'mp': 5, 'dice': 2, 'drain': 0.5},
 }
-MAX_MOVES = 6
+MAX_SPELLS = 4                   # spells known at once, on top of STRIKE and POWER SMASH
 # Spells are only learned from rare spell scrolls: (first depth the scroll turns up, price)
 SPELLS = {
-    'FIRE BOLT': (1, 120), 'FROST SHARD': (2, 120), 'VENOM': (2, 100), 'HEAL': (3, 180),
-    'SLEEP': (4, 150), 'HOLY LIGHT': (5, 220), 'THUNDER': (6, 200), 'BARRIER': (8, 200),
+    'FIRE BOLT': (1, 120), 'FROST SHARD': (2, 120), 'VENOM': (2, 100), 'BEWILDER': (3, 130),
+    'HEAL': (3, 180), 'MEDITATE': (4, 150), 'SLEEP': (4, 150), 'HOLY LIGHT': (5, 220),
+    'THUNDER': (6, 200), 'CHAIN LIGHTNING': (7, 260), 'BARRIER': (8, 200),
     'DRAIN LIFE': (9, 250),
 }
-SPELL_SCROLL_CHANCE = 0.04
+SPELL_SCROLL_CHANCE = 0.05
 MOVE_NOTES = {'burn': 'may burn', 'freeze': 'may freeze', 'poison': 'poisons',
-              'sleep': 'puts to sleep', 'paralyze': 'may paralyze'}
+              'sleep': 'puts to sleep', 'paralyze': 'may paralyze', 'confuse': 'confuses'}
+# Super effective hits deal 1.5x (or 1.25x), so no weakness turns a fight into a one-shot.
 EFFECTIVENESS = {
-    ('fire', 'beast'): 2.0, ('fire', 'giant'): 2.0, ('fire', 'dragon'): 0.5,
-    ('holy', 'undead'): 2.0, ('holy', 'dragon'): 1.5,
-    ('fire', 'elemental'): 0.5, ('fire', 'demon'): 0.5, ('holy', 'demon'): 2.0,
+    ('fire', 'beast'): 1.5, ('fire', 'giant'): 1.5, ('fire', 'dragon'): 0.5,
+    ('holy', 'undead'): 1.5, ('holy', 'dragon'): 1.25,
+    ('fire', 'elemental'): 0.5, ('fire', 'demon'): 0.5, ('holy', 'demon'): 1.5,
     ('normal', 'undead'): 0.75,
-    ('ice', 'dragon'): 2.0, ('ice', 'elemental'): 2.0, ('ice', 'demon'): 0.5,
-    ('storm', 'humanoid'): 2.0, ('storm', 'beast'): 1.5, ('storm', 'elemental'): 0.5,
+    ('ice', 'dragon'): 1.5, ('ice', 'elemental'): 1.5, ('ice', 'demon'): 0.5,
+    ('storm', 'humanoid'): 1.5, ('storm', 'beast'): 1.25, ('storm', 'elemental'): 0.5,
     ('poison', 'undead'): 0.5, ('poison', 'elemental'): 0.5, ('poison', 'giant'): 0.75,
-    ('dark', 'humanoid'): 1.5, ('dark', 'undead'): 0.5, ('dark', 'demon'): 0.5,
+    ('dark', 'humanoid'): 1.25, ('dark', 'undead'): 0.5, ('dark', 'demon'): 0.5,
 }
 
+
+def move_notes(info):
+    """Short descriptions of what a move does, for the battle and spellbook screens."""
+    notes = []
+    if info.get('mult', 1) > 1:
+        notes.append(f'weapon hit x{info["mult"]}')
+    if info.get('all'):
+        notes.append('hits every foe')
+    for key, note in (('heal', 'heals, cures status'), ('barrier', 'halves damage taken'),
+                      ('mana', 'restores MP'), ('drain', 'heals you as it hits')):
+        if key in info:
+            notes.append(note)
+    if 'effect' in info:
+        notes.append(MOVE_NOTES[info['effect'][0]])
+    if notes:
+        return notes
+    return ['basic weapon attack'] if 'mult' in info else [f'{info["dice"]}d6 magic damage']
+
+
 # Statuses a monster can suffer in battle: tag, turns, message. Burn and poison hurt every
-# turn; sleep and freeze cost turns; paralysis has a 30% chance to each turn.
+# turn; sleep and freeze cost turns; paralysis has a 30% chance to each turn, and confusion
+# a 1 in 3 chance that the monster hurts itself instead.
 STATUSES = {
     'burn':     ('BRN', (3, 4), 'was burned!'),
     'poison':   ('PSN', (4, 6), 'was badly poisoned!'),
     'freeze':   ('FRZ', (1, 2), 'was frozen solid!'),
     'sleep':    ('SLP', (2, 4), 'fell asleep!'),
     'paralyze': ('PAR', (3, 5), 'is paralyzed! It may be unable to move!'),
+    'confuse':  ('CNF', (2, 4), 'became confused!'),
 }
 
-WEAPONS = [('dagger', 1, 4), ('spear', 2, 6), ('mace', 2, 8),
-           ('long sword', 3, 10), ('two-handed sword', 4, 14)]
+LOG_SIZE = 1000                  # events kept for the event log (m)
+# Log lines that contain one of these get a color, so big moments stand out.
+LOG_HIGHLIGHTS = [('BOSS', 'red'), ('appeared!', 'red'), ('attacked!', 'red'),
+                  ('joined the battle', 'red'), ('fainted...', 'red'),
+                  ('grew to level', 'yellow'), ('learned', 'green'), ('You won the battle', 'green')]
+
+# name, damage range, magic power. Physical weapons hit hard and enchant into harder hits.
+# Magic weapons barely hurt in melee, but add their power (and enchantment) to every spell.
+WEAPONS = [('dagger', 1, 4, 0), ('spear', 2, 6, 0), ('mace', 2, 8, 0),
+           ('long sword', 3, 10, 0), ('two-handed sword', 4, 14, 0),
+           ('wand', 1, 2, 2), ('oak staff', 1, 4, 3), ('crystal rod', 1, 3, 5),
+           ('runed staff', 2, 5, 7)]
 ARMORS = [('leather armor', 2), ('studded leather', 3), ('ring mail', 3),
           ('scale mail', 4), ('chain mail', 5), ('splint mail', 6), ('plate mail', 7)]
-POTIONS = ['healing', 'extra healing', 'strength', 'poison', 'confusion', 'raise level']
-POTION_WEIGHTS = [30, 10, 12, 15, 15, 6]
-POTION_PRICES = {'healing': 30, 'extra healing': 80, 'strength': 120,
+POTIONS = ['healing', 'extra healing', 'mana', 'strength', 'poison', 'confusion', 'raise level']
+POTION_WEIGHTS = [30, 10, 16, 12, 15, 15, 6]
+POTION_PRICES = {'healing': 30, 'extra healing': 80, 'mana': 50, 'strength': 120,
                  'poison': 5, 'confusion': 5, 'raise level': 150}
 SCROLLS = ['magic mapping', 'teleportation', 'enchant weapon', 'enchant armor',
            'identify', 'aggravate monsters', 'detect traps']
@@ -548,7 +587,10 @@ LORE = [
     'Shadow demons and fire imps fear HOLY light above all else.',
     'The Bone King rules the Catacombs from depth 10. Wound it and it calls its skeletons.',
     'The Frost Wyrm guards the Amulet on depth 20. Fire barely warms it, but HOLY light does.',
-    'Nobody runs from a boss. Bring healing potions and save your PP for the fight.',
+    'Nobody runs from a boss. Bring healing potions and save your mana for the fight.',
+    'Out of mana? MEDITATE costs nothing, and a potion of mana fills you right up.',
+    'Golems and slugs have no minds to BEWILDER. Bosses are far too proud to be fooled.',
+    'A sword makes your STRIKEs hurt, but a staff or wand makes every spell burn brighter.',
     'Giants of the Frozen Abyss hate fire. A FIRE BOLT melts them like snow.',
     'Never linger in a fight near a crowd. The whole room will come to the party.',
 ]
@@ -607,13 +649,14 @@ class Item:
         self.x = self.y = 0
         self.seen = False
         self.dmg = (1, 3)
+        self.magic = 0               # spell power of a magic weapon
         self.ac = 0
 
 
 def make_weapon(name, ench=0):
-    lo, hi = next((lo, hi) for n, lo, hi in WEAPONS if n == name)
+    lo, hi, magic = next((lo, hi, magic) for n, lo, hi, magic in WEAPONS if n == name)
     it = Item('weapon', name, ench=ench)
-    it.dmg = (lo, hi)
+    it.dmg, it.magic = (lo, hi), magic
     return it
 
 
@@ -679,7 +722,9 @@ class Player:
         self.paralyzed = 0           # turns left paralyzed (30% chance to lose each action)
         self.barrier = 0             # turns left of halved damage
         self.regen = 0
-        self.moves = [{'name': 'STRIKE', 'pp': None}, {'name': 'POWER SMASH', 'pp': 10}]
+        self.mp = self.max_mp = 10   # mana that spells cost
+        self.mana_regen = 0
+        self.moves = ['STRIKE', 'POWER SMASH']    # plus up to MAX_SPELLS spells
 
     def cure(self):
         self.confused = self.burn = self.frozen = self.paralyzed = 0
@@ -692,11 +737,28 @@ class Player:
     def str_bonus(self):
         return max(-3, (self.str - 16) // 2)
 
-    def restore_pp(self, amount=None):
-        for mv in self.moves:
-            full = MOVES[mv['name']]['pp']
-            if full is not None:
-                mv['pp'] = full if amount is None else min(full, mv['pp'] + amount)
+    @property
+    def spells(self):
+        return [m for m in self.moves if m in SPELLS]
+
+    @property
+    def weapon_dmg(self):
+        """Damage range of a weapon blow before strength. Enchanting a magic weapon adds to
+        its spell power instead."""
+        w = self.weapon
+        if not w:
+            return 1, 3
+        bonus = 0 if w.magic else w.ench
+        return w.dmg[0] + bonus, w.dmg[1] + bonus
+
+    @property
+    def spell_power(self):
+        """Extra damage a magic weapon adds to every attack spell."""
+        w = self.weapon
+        return w.magic + w.ench if w and w.magic else 0
+
+    def restore_mp(self, amount=None):
+        self.mp = self.max_mp if amount is None else min(self.max_mp, self.mp + amount)
 
 
 class Game:
@@ -707,7 +769,7 @@ class Game:
         self.depth = 0
         self.turn = 0
         self.msgs = []
-        self.log = []
+        self.log = []                # event log: [turn, depth, text, times repeated]
         self.known = set()
         self.potion_look = dict(zip(POTIONS, random.sample(POTION_COLORS, len(POTIONS))))
         self.scroll_look = {s: self.random_title() for s in SCROLLS}
@@ -739,8 +801,16 @@ class Game:
 
     def msg(self, text):
         self.msgs.append(text)
-        self.log.append(text)
-        del self.log[:-50]
+        self.record(text)
+
+    def record(self, text):
+        """Add an event to the log. A repeat of the last event just bumps its count."""
+        last = self.log[-1] if self.log else None
+        if last and last[2] == text and last[1] == self.depth:
+            last[0], last[3] = self.turn, last[3] + 1
+            return
+        self.log.append([self.turn, self.depth, text, 1])
+        del self.log[:-LOG_SIZE]
 
     def walkable(self, x, y):
         return 0 <= x < MAP_W and 0 <= y < MAP_H and self.tiles[y][x] in WALKABLE
@@ -769,10 +839,13 @@ class Game:
             return 'the Amulet of Yendor'
         if it.kind == 'food':
             return 'a food ration' if n == 1 else f'{n} food rations'
+        # enchantment is already counted in the stats shown, so it isn't listed separately
+        if it.kind == 'weapon' and it.magic:
+            return an(f'{it.sub} (hits {it.dmg[0]}-{it.dmg[1]}, spells +{it.magic + it.ench})')
         if it.kind == 'weapon':
-            return f'a {it.ench:+d} {it.sub} ({it.dmg[0] + it.ench}-{it.dmg[1] + it.ench})'
+            return an(f'{it.sub} (hits {it.dmg[0] + it.ench}-{it.dmg[1] + it.ench})')
         if it.kind == 'armor':
-            return f'a {it.ench:+d} {it.sub} [{it.ac + it.ench}]'
+            return an(f'{it.sub} (defense {it.ac + it.ench})')
         noun = it.kind if n == 1 else it.kind + 's'
         if it.sub in SPELLS:                       # spell scrolls are always recognized
             base = f'spell {noun} of {it.sub}'
@@ -802,7 +875,7 @@ class Game:
         elif it.kind == 'food':
             base = 15
         elif it.kind == 'weapon':
-            base = (it.dmg[0] + it.dmg[1]) * 6 + it.ench * 30
+            base = (it.dmg[0] + it.dmg[1]) * 6 + it.magic * 25 + it.ench * 30
         else:
             base = it.ac * 18 + it.ench * 30
         return max(5, base)
@@ -1042,8 +1115,8 @@ class Game:
 
     def spell_scroll(self):
         """A rare scroll that teaches a spell, favoring spells the player doesn't know yet."""
-        known = {mv['name'] for mv in self.player.moves}
-        spells = [s for s, (depth, _price) in SPELLS.items() if depth <= self.depth]
+        known = set(self.player.moves)
+        spells =[s for s, (depth, _price) in SPELLS.items() if depth <= self.depth]
         return Item('scroll', random.choices(spells, [1 if s in known else 4 for s in spells])[0])
 
     def random_item(self):
@@ -1132,8 +1205,10 @@ class Game:
             if p.regen >= max(3, 14 - p.level) and p.hp < p.max_hp:
                 p.hp += 1
                 p.regen = 0
-        if self.turn % 40 == 0:
-            p.restore_pp(1)
+            p.mana_regen += 1
+            if p.mana_regen >= max(3, 10 - p.level // 2) and p.mp < p.max_mp:
+                p.mp += 1
+                p.mana_regen = 0
         if p.confused:
             p.confused -= 1
             if not p.confused:
@@ -1170,7 +1245,8 @@ class Game:
             gain = random.randint(4, 9)
             p.max_hp += gain
             p.hp += gain
-            p.restore_pp()
+            p.max_mp += random.randint(2, 4)
+            p.restore_mp()
             self.msg(f'{self.name} grew to level {p.level}!')
 
     # ------------------------------------------------------------ monsters
@@ -1294,8 +1370,8 @@ class Game:
                 mv = self.fight_menu()
                 if mv is None:
                     continue
-                if mv['pp'] == 0:
-                    self.say('There is no PP left for this move!')
+                if MOVES[mv]['mp'] > p.mp:
+                    self.say(f'Not enough MP! {mv} costs {MOVES[mv]["mp"]} MP.', log=False)
                     continue
                 self.use_move(m, mv)
             elif choice == 1:                                 # BAG
@@ -1330,15 +1406,14 @@ class Game:
                     break
                 skippable = False
                 continue
+            elif choice == 5:                                 # event log
+                self.show_log()
+                continue
             else:
                 continue
 
-            if m.hp <= 0:
-                self.win_battle(m)
-                if not self.foes:
-                    break
-                self.shown_hp[0] = self.foe.hp
-                self.say(f'{self.name} turned to face the {self.called(self.foe)}!')
+            if self.clear_fainted():          # the target, or every foe a spell hit
+                break
             self.foes_attack(guarding)
             if self.game_over or self.clear_fainted():
                 break
@@ -1380,7 +1455,7 @@ class Game:
         return True
 
     def clear_fainted(self):
-        """Reward and remove foes that succumbed to burns or poison. True if none are left."""
+        """Reward and remove foes that have fainted. True if none are left."""
         target = self.foe
         for f in [f for f in self.foes if f.hp <= 0]:
             self.win_battle(f)
@@ -1402,7 +1477,8 @@ class Game:
                   or (status == 'burn' and ('burn' in m.flags or m.type == 'elemental'))
                   or (status == 'poison' and m.type in ('undead', 'elemental'))
                   or (status == 'freeze' and ('frost' in m.flags or 'boss' in m.flags))
-                  or (status == 'sleep' and ('boss' in m.flags or m.type == 'undead')))
+                  or (status == 'sleep' and ('boss' in m.flags or m.type == 'undead'))
+                  or (status == 'confuse' and ('boss' in m.flags or m.type == 'elemental')))
         if immune:
             return False
         _tag, turns, text = STATUSES[status]
@@ -1410,8 +1486,9 @@ class Game:
         say(f'The {self.called(m)} {text}')
         return True
 
-    def foe_held(self, m, say):
-        """Sleep, freezing and paralysis can cost a monster its turn. True if it does."""
+    def foe_held(self, m, say, quiet=False):
+        """Sleep, freezing, paralysis and confusion can cost a monster its turn. True if
+        it does."""
         who = f'The {self.called(m)}'
         for status, held, ends in (('sleep', 'is fast asleep.', 'woke up!'),
                                    ('freeze', 'is frozen solid!', 'thawed out!')):
@@ -1430,6 +1507,17 @@ class Game:
                 say(f'{who} is no longer paralyzed.')
             elif random.random() < 0.3:
                 say(f"{who} is paralyzed! It can't move!")
+                return True
+        if 'confuse' in m.status:
+            m.status['confuse'] -= 1
+            if m.status['confuse'] <= 0:
+                del m.status['confuse']
+                say(f'{who} snapped out of its confusion!')
+            elif random.random() < 1 / 3:
+                m.hp = max(0, m.hp - max(1, random.randint(*m.dmg) // 2))
+                if not quiet:
+                    self.animate_hp()
+                say(f'{who} is confused! It hurt itself in its confusion!')
                 return True
         return False
 
@@ -1479,14 +1567,13 @@ class Game:
             eff = min(eff, 0.5)                # fire creatures shrug off fire, frost ones ice
         return eff
 
-    def use_move(self, m, mv, quiet=False):
+    def use_move(self, m, name, quiet=False):
         p = self.player
-        info = MOVES[mv['name']]
+        info = MOVES[name]
         say = self.msg if quiet else self.say
-        if mv['pp'] is not None:
-            mv['pp'] -= 1
+        p.mp -= info['mp']
         if not quiet:
-            self.say(f'{self.name} used {mv["name"]}!')
+            self.say(f'{self.name} used {name}!')
         if 'heal' in info:
             p.hp = min(p.max_hp, p.hp + sum(random.randint(1, 8) for _ in range(info['heal']))
                        + 2 * p.level)
@@ -1499,6 +1586,20 @@ class Game:
             p.barrier = info['barrier']
             say(f'A shimmering barrier surrounds {self.name}!')
             return
+        if 'mana' in info:
+            gained = min(p.max_mp - p.mp, info['mana'] + p.level // 2)
+            p.mp += gained
+            say(f'{self.name} focused and recovered {gained} MP!' if gained else
+                f'{self.name} focused, but is already brimming with mana.')
+            return
+        targets = list(self.foes) if info.get('all') else [m]
+        for t in targets:
+            self.hit_foe(t, info, say, quiet, many=len(targets) > 1)
+
+    def hit_foe(self, m, info, say, quiet, many):
+        """One target of an attacking move: roll to hit, deal damage and apply effects.
+        many: the move hits several foes, so each one is named in the battle text."""
+        p = self.player
         if random.randint(1, 100) > info['acc'] + p.level * 2 - m.ac * 3:
             if not quiet:
                 self.say(f'The {self.called(m)} avoided the attack!')
@@ -1509,11 +1610,10 @@ class Game:
                 say('But it failed!')
             return
         if 'mult' in info:
-            w = p.weapon
-            lo, hi, ench = (w.dmg[0], w.dmg[1], w.ench) if w else (1, 3, 0)
-            dmg = (random.randint(lo, hi) + ench + p.str_bonus) * info['mult']
+            dmg = (random.randint(*p.weapon_dmg) + p.str_bonus) * info['mult']
         else:
-            dmg = sum(random.randint(1, 6) for _ in range(info['dice'])) + 2 * p.level
+            dmg = (sum(random.randint(1, 6) for _ in range(info['dice'])) + 2 * p.level
+                   + p.spell_power)
         eff = self.effectiveness(info['type'], m)
         crit = random.random() < 1 / 16
         dmg = max(1, int(dmg * eff * (1.5 if crit else 1)))
@@ -1521,14 +1621,19 @@ class Game:
         if 'drain' in info:
             p.hp = min(p.max_hp, p.hp + max(1, int(dmg * info['drain'])))
         if not quiet:
-            self.flash('enemy')
-            self.animate_hp()
-            if crit:
-                self.say('A critical hit!')
+            if m is self.foe:
+                self.flash('enemy')
+                self.animate_hp()
+            notes = ['A critical hit!'] if crit else []
             if eff > 1:
-                self.say("It's super effective!")
+                notes.append("It's super effective!")
             elif eff < 1:
-                self.say("It's not very effective...")
+                notes.append("It's not very effective...")
+            if many:
+                self.say(' '.join([f'The {self.called(m)} was hit!'] + notes))
+            else:
+                for note in notes:
+                    self.say(note)
             if 'drain' in info:
                 self.say(f'{self.name} drained the life from the {self.called(m)}!')
         if m.hp <= 0:
@@ -1546,7 +1651,7 @@ class Game:
         say = self.msg if quiet else self.say     # quiet: only status effects get reported later
         if 'boss' in m.flags and not m.phased and m.hp <= m.max_hp // 2:
             self.boss_phase(m, say)
-        if not self.foe_held(m, say):
+        if not self.foe_held(m, say, quiet):
             for _ in range(2 if 'enraged' in m.flags else 1):
                 self.foe_attack(m, guarding, quiet)
                 if self.game_over:
@@ -1606,14 +1711,13 @@ class Game:
         """True if STRIKE alone beats every foe even with bad rolls and each one hitting
         hard every round until it falls."""
         p = self.player
-        w = p.weapon
-        lo, ench = (w.dmg[0], w.ench) if w else (1, 0)
+        lo = p.weapon_dmg[0]
         elapsed = worst = 0
         for m in self.foes:
             if 'boss' in m.flags:
                 return False
             eff = EFFECTIVENESS.get(('normal', m.type), 1.0)
-            min_dmg = max(1, int((lo + ench + p.str_bonus) * eff))
+            min_dmg = max(1, int((lo + p.str_bonus) * eff))
             hit = min(100, MOVES['STRIKE']['acc'] + p.level * 2 - m.ac * 3) / 100
             if hit <= 0.5:
                 return False
@@ -1632,12 +1736,11 @@ class Game:
         quiet: report on the map instead of the battle screen (auto-skip)."""
         p = self.player
         hp_before, rounds, beaten = p.hp, 0, []
-        strike = {'name': 'STRIKE', 'pp': None}
         finished = True
         while self.foes and not self.game_over:
             rounds += 1
             m = self.foe
-            self.use_move(m, strike, quiet=True)
+            self.use_move(m, 'STRIKE', quiet=True)
             if m.hp <= 0:
                 self.drop_foe(m)
                 beaten.append(m)
@@ -1725,6 +1828,7 @@ class Game:
         def extra(cur):
             if easy:
                 self.put(22, 3, '[S] SKIP - easy win', COLORS['green'] | curses.A_BOLD)
+            self.put(22, 30, '[M] LOG', COLORS['cyan'])
             self.box(16, 46, 8, 34)
             self.put(16, 46, '┬')
             self.put(23, 46, '┴')
@@ -1732,32 +1836,35 @@ class Game:
                 r, c = divmod(i, 2)
                 self.put(18 + r * 2, 50 + c * 14, ('▶' if i == cur else ' ') + o,
                          curses.A_BOLD if i == cur else 0)
+        keys = {'m': 5, 'M': 5}
+        if easy:
+            keys.update({'s': 4, 'S': 4})
         return self.select(lambda cur: self.draw_battle(['What will', f'{self.name} do?'],
                                                         extra=lambda: extra(cur)), 4, cols=2,
-                           keys={'s': 4, 'S': 4} if easy else None)
+                           keys=keys)
 
     def fight_menu(self):
-        moves = self.player.moves
+        p = self.player
+        moves = p.moves
 
         def extra(cur):
             self.box(16, 0, 8, 56)
-            for i, mv in enumerate(moves):
+            for i, name in enumerate(moves):
                 r, c = divmod(i, 2)
-                self.put(17 + r * 2, 3 + c * 26, ('▶' if i == cur else ' ') + mv['name'],
-                         curses.A_BOLD if i == cur else 0)
+                y, x = 17 + r * 2, 3 + c * 26
+                self.put(y, x, ('▶' if i == cur else ' ') + name, curses.A_BOLD if i == cur else 0)
+                cost = MOVES[name]['mp']
+                if cost:
+                    self.put(y, x + 18, f'{cost:>2}MP', COLORS['red'] if cost > p.mp else 0)
             self.box(16, 56, 8, 24)
-            mv = moves[cur]
-            info = MOVES[mv['name']]
-            full = info['pp']
-            pp = '--/--' if full is None else f'{mv["pp"]}/{full}'
-            attr = COLORS['red'] | curses.A_BOLD if mv['pp'] == 0 else 0
-            self.put(18, 59, f'PP    {pp}', attr)
-            self.put(20, 59, f'TYPE/{info["type"].upper()}')
-            note = ('heals, cures ailments' if 'heal' in info else
-                    'halves damage taken' if 'barrier' in info else
-                    'heals you as it hits' if 'drain' in info else
-                    MOVE_NOTES[info['effect'][0]] if 'effect' in info else '')
-            self.put(22, 59, note, COLORS['cyan'])
+            info = MOVES[moves[cur]]
+            short = info['mp'] > p.mp
+            self.put(17, 59, f'COST  {info["mp"]} MP' if info['mp'] else 'COST  free',
+                     COLORS['red'] | curses.A_BOLD if short else 0)
+            self.put(18, 59, f'HAVE  {p.mp}/{p.max_mp} MP')
+            self.put(19, 59, f'TYPE/{info["type"].upper()}')
+            for i, note in enumerate(move_notes(info)[:2]):
+                self.put(21 + i, 59, note[:20], COLORS['cyan'])
         i = self.select(lambda cur: self.draw_battle(extra=lambda: extra(cur)), len(moves), cols=2)
         return None if i is None else moves[i]
 
@@ -1796,8 +1903,7 @@ class Game:
     def say(self, text, log=True):
         """Show a line in the battle text box and wait for a key."""
         if log:
-            self.log.append(text)
-            del self.log[:-50]
+            self.record(text)
         lines = textwrap.wrap(text, 72) or ['']
         for i in range(0, len(lines), 2):
             self.draw_battle(lines[i:i + 2], more=True)
@@ -1836,7 +1942,7 @@ class Game:
             for i, line in enumerate(SPRITES['player']):
                 self.put(9 + i, 6, line, COLORS['yellow'] | curses.A_BOLD)
         self.put(15, 2, '`~~~~~~~~~~~~~~~~~~~~~~~\'', COLORS['green'])
-        self.box(9, 42, 6, 36)
+        self.box(9, 42, 7, 36)
         self.put(10, 44, self.name.upper()[:18], curses.A_BOLD)
         self.put(10, 64, f'Lv{p.level}')
         flags = [tag for tag, on in (('FRZ', p.frozen), ('PAR', p.paralyzed), ('BRN', p.burn),
@@ -1849,9 +1955,14 @@ class Game:
         prev = xp_needed(p.level - 1) if p.level > 1 else 0
         frac = (p.xp - prev) / (xp_needed(p.level) - prev)
         filled = int(min(1, max(0, frac)) * 26)
-        self.put(13, 44, 'EXP')
-        self.put(13, 48, '█' * filled, COLORS['cyan'])
-        self.put(13, 48 + filled, '░' * (26 - filled))
+        self.put(14, 44, 'EXP')
+        self.put(14, 48, '█' * filled, COLORS['cyan'])
+        self.put(14, 48 + filled, '░' * (26 - filled))
+        filled = int(round(p.mp / p.max_mp * 20))
+        self.put(13, 44, 'MP', curses.A_BOLD)
+        self.put(13, 47, '█' * filled, COLORS['blue'] | curses.A_BOLD)
+        self.put(13, 47 + filled, '░' * (20 - filled))
+        self.put(13, 68, f'{p.mp:>2}/{p.max_mp:>2}')
         # text box
         self.box(16, 0, 8, 80)
         for i, line in enumerate(text or []):
@@ -1860,6 +1971,7 @@ class Game:
             self.put(21, 76, '▼', curses.A_BOLD | curses.A_BLINK)
         if extra:
             extra()
+        self.draw_log_panel()
         self.scr.refresh()
 
     def hp_bar(self, y, x, hp, max_hp, width):
@@ -1980,9 +2092,14 @@ class Game:
                     'long and other monsters will join in!')
             elif c == 1:
                 say('You know STRIKE and POWER SMASH. New spells come only from rare spell '
-                    f'scrolls, and you can hold {MAX_MOVES} moves at most.')
+                    f'scrolls, and you can hold {MAX_SPELLS} spells at most. Learn another and '
+                    'you must forget one.')
+                say('Swords and maces make your STRIKEs hit harder. Wands and staffs barely '
+                    'scratch a foe, but they make every spell you cast hit harder.')
                 say('FIRE scorches beasts and giants, but dragons shrug it off. HOLY light '
-                    'sears the undead. Special moves use PP, which slowly returns.')
+                    'sears the undead. Weak spots hurt, but they will not win a fight alone.')
+                say('Every spell costs mana (MP). It slowly returns as you walk and rest, '
+                    'and comes back in full when you grow a level.')
                 say('Many spells leave a mark: burns and poison hurt every turn, while sleep, '
                     'frost and paralysis can make a foe lose its turn.')
                 say('Monsters can do the same to you! A potion of healing or a healer will '
@@ -1992,7 +2109,7 @@ class Game:
                     'of Doom, the Sunken Catacombs, the Ember Caverns and the Frozen Abyss.')
                 say('At depth 10 the BONE KING seals the way down. At the very bottom the FROST '
                     'WYRM coils around the Amulet. Neither will let you run away!')
-                say('Bosses grow desperate when wounded. Save your PP and potions for them.')
+                say('Bosses grow desperate when wounded. Save your mana and potions for them.')
             elif c == 3:
                 say('Look for the & sign on deeper floors. Merchants trade for gold, healers '
                     'mend wounds, and bards know many secrets.')
@@ -2012,7 +2129,7 @@ class Game:
                 if not npc.stock:
                     say("I'm all sold out! Come back... well, never, I suppose.")
                     continue
-                opts = [f'{self.item_name(it, reveal=True)[:34]:<34} {self.price(it):>4}g'
+                opts = [f'{self.item_name(it, reveal=True)[:38]:<38} {self.price(it):>4}g'
                         for it in npc.stock] + ['Back']
                 i = self.npc_ask(npc, f'Take a look! (You have {p.gold} gold.)', opts)
                 if i == len(npc.stock):
@@ -2072,8 +2189,8 @@ class Game:
         npc.done = True
         p.hp, p.str = p.max_hp, p.max_str
         p.cure()
-        p.restore_pp()
-        say('A warm light surrounds you... HP and PP fully restored!')
+        p.restore_mp()
+        say('A warm light surrounds you... HP and MP fully restored!')
 
     def talk_bard(self, npc):
         p = self.player
@@ -2297,7 +2414,8 @@ class Game:
             self.msg('You cannot rest with monsters nearby!')
             return
         for _ in range(500):
-            if p.hp >= p.max_hp or self.game_over or self.msgs or self.visible_monsters():
+            if (p.hp >= p.max_hp and p.mp >= p.max_mp) or self.game_over or self.msgs \
+                    or self.visible_monsters():
                 break
             self.end_turn()
 
@@ -2401,8 +2519,11 @@ class Game:
             p.hp = p.max_hp
             p.str = p.max_str
             p.cure()
-            p.restore_pp()
+            p.restore_mp()
             self.msg('You feel much better.')
+        elif kind == 'mana':
+            p.restore_mp()
+            self.msg('Your mind clears as magic surges through you.')
         elif kind == 'strength':
             p.max_str += 1
             p.str = p.max_str
@@ -2420,32 +2541,71 @@ class Game:
         return True
 
     def learn_spell(self, it):
-        """Read a spell scroll. Returns False if the player kept it after all."""
+        """Read a spell scroll. With MAX_SPELLS known, the player must forget one first.
+        Returns False if the player kept the scroll after all."""
         p = self.player
         spell = it.sub
-        known = next((mv for mv in p.moves if mv['name'] == spell), None)
-        if known:
-            known['pp'] = MOVES[spell]['pp']
+        if spell in p.moves:
             self.use_up(it)
-            self.msg(f'You already know {spell}. The scroll crumbles away, restoring its PP.')
+            p.restore_mp()
+            self.msg(f'You already know {spell}. The scroll crumbles away, restoring your mana.')
             return True
-        if len(p.moves) >= MAX_MOVES:
-            opts = [(chr(ord('a') + i), mv) for i, mv in enumerate(p.moves)
-                    if mv['name'] != 'STRIKE']
-            self.show()
-            k = self.menu(f'You can know only {MAX_MOVES} moves. Forget one for {spell}?',
-                          [f'{l}) {mv["name"]}' for l, mv in opts] + ['', 'Esc) keep the scroll'])
-            ch = chr(k) if 0 < k < 256 else ''
-            old = next((mv for l, mv in opts if l == ch), None)
+        if len(p.spells) >= MAX_SPELLS:
+            old = self.pick_forget(spell)
             if not old:
                 self.msg(f'You put the spell scroll of {spell} away for now.')
                 return False
             p.moves.remove(old)
-            self.msg(f'1, 2 and... poof! {self.name} forgot {old["name"]}.')
-        p.moves.append({'name': spell, 'pp': MOVES[spell]['pp']})
+            self.msg(f'1, 2 and... poof! {self.name} forgot {old}.')
+        p.moves.append(spell)
         self.use_up(it)
         self.msg(f'The scroll glows and crumbles to dust. {self.name} learned {spell}!')
         return True
+
+    # ----------------------------------------------------------- spellbook
+    def spellbook(self):
+        """Show every move the player knows and what the wielded weapon adds to them."""
+        p = self.player
+        lo, hi = p.weapon_dmg
+        w = p.weapon
+        if w and w.magic:
+            weapon = [f'Weapon: {self.item_name(w)}, a magic weapon',
+                      f'Attack spells deal +{p.spell_power} damage. STRIKE and POWER SMASH hit '
+                      f'for only {lo}-{hi}.']
+        else:
+            weapon = [f'Weapon: {self.item_name(w) + ", a physical weapon" if w else "bare hands"}',
+                      f'STRIKE and POWER SMASH hit for {lo}-{hi} (plus strength). Spells get no '
+                      'bonus.']
+        self.draw_spells('SPELLBOOK', p.moves, None, 'press any key', weapon + [
+            '', f'You know {len(p.spells)} of {MAX_SPELLS} spells. Learning another means '
+            'forgetting one.'])
+        self.wait_key()
+
+    def pick_forget(self, spell):
+        """Ask which known spell to forget for `spell`. None keeps things as they are."""
+        options = self.player.spells
+        i = self.select(lambda c: self.draw_spells(
+            f'You know {MAX_SPELLS} spells already! Forget which one for {spell}?',
+            options, c, f'Enter: forget it   Esc: keep the scroll of {spell} for later'),
+            len(options))
+        return None if i is None else options[i]
+
+    def draw_spells(self, title, names, cur, footer, notes=()):
+        p = self.player
+        self.scr.erase()
+        self.put(0, 0, f' {title}', curses.A_BOLD)
+        self.put(0, 66, f'MP {p.mp}/{p.max_mp}', COLORS['blue'] | curses.A_BOLD)
+        self.put(2, 2, '  MOVE              TYPE      COST  EFFECT', curses.A_UNDERLINE)
+        for i, name in enumerate(names):
+            info = MOVES[name]
+            cost = f'{info["mp"]:>2} MP' if info['mp'] else 'free'
+            line = (f'{"▶" if i == cur else " "} {name:<17} {info["type"].upper():<9} '
+                    f'{cost:<5} {", ".join(move_notes(info))}')
+            self.put(3 + i, 2, line[:77], curses.A_BOLD if i == cur else 0)
+        for i, note in enumerate(notes):
+            self.put(11 + i, 2, note[:77], COLORS['cyan'])
+        self.put(23, 0, f' {footer} '[:79], curses.A_REVERSE)
+        self.scr.refresh()
 
     def read_scroll(self, it):
         p = self.player
@@ -2467,13 +2627,16 @@ class Game:
         elif kind == 'enchant weapon':
             if p.weapon:
                 p.weapon.ench += 1
-                self.msg(f'Your {p.weapon.sub} glows blue for a moment.')
+                w = p.weapon
+                self.msg(f'Your {w.sub} glows blue for a moment. ' +
+                         (f'Your spells now get +{p.spell_power}.' if w.magic else
+                          f'It now hits for {p.weapon_dmg[0]}-{p.weapon_dmg[1]}.'))
             else:
                 self.msg('Your hands tingle.')
         elif kind == 'enchant armor':
             if p.armor:
                 p.armor.ench += 1
-                self.msg('Your armor glows silver for a moment.')
+                self.msg(f'Your armor glows silver for a moment. Your defense is now {p.ac}.')
             else:
                 self.msg('Your skin crawls.')
         elif kind == 'detect traps':
@@ -2595,8 +2758,9 @@ class Game:
 
         hunger = ('' if p.food > 300 else 'Hungry' if p.food > 150
                   else 'Weak' if p.food > 0 else 'Starving')
-        status = (f'Depth:{self.depth}  HP:{p.hp}({p.max_hp})  Str:{p.str}({p.max_str})  '
-                  f'AC:{p.ac}  Lvl:{p.level}  Exp:{p.xp}/{xp_needed(p.level)}  Gold:{p.gold}')
+        strength = f'Str:{p.str}' + (f'({p.max_str})' if p.str < p.max_str else '')
+        status = (f'Depth:{self.depth} HP:{p.hp}({p.max_hp}) MP:{p.mp}({p.max_mp}) {strength} '
+                  f'Def:{p.ac} Lvl:{p.level} Exp:{p.xp}/{xp_needed(p.level)} Gold:{p.gold}')
         self.put(STATUS_ROW, 0, status)
         hp_attr = COLORS['red'] | curses.A_BOLD if p.hp <= p.max_hp // 3 else 0
         self.put(STATUS_ROW, status.index('HP:'), f'HP:{p.hp}', hp_attr)
@@ -2609,8 +2773,78 @@ class Game:
         if self.auto_skip:
             self.put(STATUS_ROW, len(status) + 2 + (len(flags) + 1 if flags else 0),
                      'Auto', COLORS['green'] | curses.A_BOLD)
+        self.draw_log_panel()
         if refresh:
             scr.refresh()
+
+    def log_lines(self, width, entries, stamps=True):
+        """Event log entries as (text, attr) screen lines wrapped to `width`, oldest first.
+        A header marks every change of depth; stamps puts the turn number in front."""
+        lines, depth = [], None
+        pad = 7 if stamps else 2
+        for turn, d, text, n in entries:
+            if d != depth:
+                depth = d
+                lines.append((f'-- Depth {d}: {environment(max(1, d))["name"]} --'[:width],
+                              COLORS['cyan'] | curses.A_BOLD))
+            if n > 1:
+                text += f' (x{n})'
+            attr = next((COLORS[c] | curses.A_BOLD for key, c in LOG_HIGHLIGHTS if key in text), 0)
+            for i, part in enumerate(textwrap.wrap(text, width - pad) or ['']):
+                head = (f'{turn:>5}  ' if stamps else '- ') if i == 0 else ' ' * pad
+                lines.append((head + part, attr))
+        return lines
+
+    def draw_log_panel(self):
+        """In a terminal bigger than 80x24, show the latest events beside or below the game."""
+        rows, cols = self.scr.getmaxyx()
+        if cols >= 104:
+            top, left, height, width = 0, 81, rows - 1, cols - 82
+        elif rows >= 28:
+            top, left, height, width = 25, 0, rows - 26, min(cols - 1, 80)
+        else:
+            return
+        self.put(top, left, ' RECENT EVENTS '.center(width, '─'), COLORS['cyan'])
+        lines = self.log_lines(width, self.log[-height:], stamps=False)[-height:]
+        for i, (line, attr) in enumerate(lines):
+            self.put(top + 1 + i, left, line, attr)
+
+    def show_log(self):
+        """Scroll through the event log. It opens at the newest events."""
+        rows, cols = self.scr.getmaxyx()
+        width, height = min(cols, 120) - 1, rows - 2
+        lines = self.log_lines(width, self.log) or [('Nothing has happened yet.', 0)]
+        bottom = max(0, len(lines) - height)
+        top = bottom
+        while True:
+            self.scr.erase()
+            self.put(0, 0, f' EVENT LOG   (turn {self.turn}, depth {self.depth})'.ljust(width),
+                     curses.A_REVERSE)
+            for i, (line, attr) in enumerate(lines[top:top + height]):
+                self.put(1 + i, 0, line, attr)
+            where = 'end' if top >= bottom else f'{top + height}/{len(lines)}'
+            self.put(rows - 1, 0, f' up/down or j/k: scroll   PgUp/PgDn/space: page   '
+                     f'g/G: start/end   Esc: close   [{where}] '[:width], curses.A_REVERSE)
+            self.scr.refresh()
+            k = self.scr.getch()
+            ch = chr(k) if 0 < k < 256 else ''
+            if k == curses.KEY_UP or ch == 'k':
+                top -= 1
+            elif k == curses.KEY_DOWN or ch == 'j':
+                top += 1
+            elif k == curses.KEY_PPAGE or ch == 'b':
+                top -= height
+            elif k == curses.KEY_NPAGE or ch == ' ':
+                top += height
+            elif ch == 'g' or k == curses.KEY_HOME:
+                top = 0
+            elif ch == 'G' or k == curses.KEY_END:
+                top = bottom
+            elif k == curses.KEY_RESIZE:
+                return self.show_log()
+            elif ch in CANCEL_KEYS or ch in ('q', 'm', '\n', '\r'):
+                return
+            top = max(0, min(bottom, top))
 
     def show(self):
         """Draw the screen, paging through this turn's messages with --More--."""
@@ -2661,20 +2895,20 @@ class Game:
         '  h j k l y u b n   move (or arrow keys / numpad)       \\|/',
         '  H J K L Y U B N   run in that direction             h-@-l',
         '  . or 5            rest one turn                       /|\\',
-        '  z                 rest until healed                  b j n',
+        '  z                 rest until HP and MP are full      b j n',
         '  s                 search nearby for hidden traps',
         '  , or g            pick up item         >  go down stairs',
-        '  i  inventory      m  message history     ?  help     Q  quit',
-        '  q  quaff potion   r  read scroll   e  eat food',
+        '  i  inventory      m  event log (all that happened)   ?  help     Q  quit',
+        '  q  quaff potion   r  read scroll   e  eat food       S  spells & weapon',
         '  w  wield weapon   W  wear armor    d  drop item',
         '  A  toggle auto-skip of easy battles',
         '',
         'BATTLES, TRAPS & TALKING',
-        '  Bump a monster (or let it reach you) to fight. In battle, S skips easy ones.',
+        '  Bump a monster to fight. In battle, S skips easy fights and M opens the log.',
         '  In menus: arrows/hjkl move the cursor, Enter/space/z choose, Esc/x go back.',
         '  Walk into a friendly character (&) to talk to them.',
         '  Traps are hidden until found; known traps (^) ask before you step on them.',
-        f'  Learn spells by reading rare spell scrolls (r). You can know {MAX_MOVES} moves.',
+        f'  Spells cost MP and come from spell scrolls (r). You can know {MAX_SPELLS} at once.',
         'SYMBOLS',
         '  @ you  & friend  > stairs  ! potion  ? scroll  ) weapon  ] armor  ^ trap',
         '  : food  * gold  " Amulet  + door  # corridor  % cave wall  ~ lava / icy water',
@@ -2710,7 +2944,9 @@ class Game:
         elif ch == '?':
             self.full_screen(self.HELP)
         elif ch in ('m', '\x10'):
-            self.full_screen(['MESSAGE HISTORY', ''] + self.log[-21:])
+            self.show_log()
+        elif ch == 'S':
+            self.spellbook()
         elif ch == 'A':
             self.auto_skip = not self.auto_skip
             self.msg(f'Auto-skip easy battles: {"ON" if self.auto_skip else "OFF"}.')
