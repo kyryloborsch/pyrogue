@@ -18,6 +18,7 @@ import locale
 import math
 import os
 import random
+import re
 import textwrap
 from collections import deque
 
@@ -108,6 +109,11 @@ ARROWS = {
 CONFIRM_KEYS = {'\n', '\r', ' ', 'z'}
 CANCEL_KEYS = {'\x1b', 'x'}
 
+# Difficulty: monster HP and damage are scaled by these, and grow a little more for every
+# depth a monster lives below its home levels.
+MONSTER_HP_SCALE = 1.25
+MONSTER_DMG_SCALE = 1.2
+
 # ch, name, hp, ac, damage, xp, min depth, max depth, color, flags
 MONSTERS = [
     # Dungeons of Doom
@@ -145,6 +151,38 @@ MONSTERS = [
     ('D', 'frost wyrm',  220, 9, (6, 12), 1500, 20, 20, 'cyan',   'boss frost'),
 ]
 
+# Where a physical move can be aimed: accuracy change, damage multiplier.
+PARTS = {
+    'BODY':  (0, 1.0),
+    'HEAD':  (-20, 1.25),
+    'ARMS':  (-10, 1.0),
+    'LEGS':  (-5, 1.0),
+    'WINGS': (-15, 1.0),
+    'TAIL':  (-10, 1.0),
+}
+WEAK_SPOT_MULT = 1.5             # extra damage when a blow lands on a monster's weak spot
+# Body parts by battle type, and for monsters built differently from the rest of their type.
+BODY_PLANS = {
+    'humanoid': ['BODY', 'HEAD', 'ARMS', 'LEGS'], 'undead': ['BODY', 'HEAD', 'ARMS', 'LEGS'],
+    'giant': ['BODY', 'HEAD', 'ARMS', 'LEGS'], 'demon': ['BODY', 'HEAD', 'ARMS', 'LEGS'],
+    'beast': ['BODY', 'HEAD', 'LEGS'], 'dragon': ['BODY', 'HEAD', 'WINGS', 'TAIL'],
+    'elemental': ['BODY', 'HEAD', 'ARMS', 'LEGS'],
+    'bat': ['BODY', 'HEAD', 'WINGS'], 'snake': ['BODY', 'HEAD', 'TAIL'],
+    'basilisk': ['BODY', 'HEAD', 'LEGS', 'TAIL'], 'magma slug': ['BODY', 'HEAD', 'TAIL'],
+    'fire imp': ['BODY', 'HEAD', 'ARMS', 'WINGS'], 'wraith': ['BODY', 'HEAD', 'ARMS'],
+    'banshee': ['BODY', 'HEAD', 'ARMS'],
+}
+# Every monster has one weak spot (never its BODY). The player learns it by hitting it.
+WEAK_SPOTS = {
+    'rat': 'HEAD', 'bat': 'WINGS', 'kobold': 'LEGS', 'jackal': 'LEGS', 'goblin': 'HEAD',
+    'snake': 'HEAD', 'orc': 'LEGS', 'hobgoblin': 'ARMS', 'zombie': 'HEAD', 'skeleton': 'LEGS',
+    'ogre': 'LEGS', 'ghoul': 'ARMS', 'troll': 'LEGS', 'wraith': 'HEAD', 'magma slug': 'TAIL',
+    'cave spider': 'LEGS', 'fire imp': 'WINGS', 'basilisk': 'TAIL', 'dragon': 'WINGS',
+    'lava golem': 'HEAD', 'shadow demon': 'ARMS', 'frost wolf': 'LEGS', 'yeti': 'HEAD',
+    'banshee': 'HEAD', 'ice troll': 'LEGS', 'frost giant': 'LEGS', 'bone king': 'HEAD',
+    'frost wyrm': 'TAIL',
+}
+
 # battle type, normal attack, special attack (30% chance, 1.5x damage)
 MONSTER_INFO = {
     'rat':       ('beast',    'BITE',        'GNAW'),
@@ -177,8 +215,9 @@ MONSTER_INFO = {
     'frost wyrm':   ('dragon',    'CLAW',       'FROST BREATH'),
 }
 
-# Player battle moves. Physical moves (mult) cost no mana and swing the wielded weapon;
-# spells cost mana (mp) and roll d6s, plus the power of a magic weapon. effect: (status,
+# Player battle moves. Physical moves (mult) cost no mana, swing the wielded weapon and
+# are aimed at a body part (see PARTS); spells cost mana (mp) and roll d6s, plus the
+# player's level and the power of a magic weapon. effect: (status,
 # % chance) put on the target by a hit. heal: d8s healed (plus 2 per level). barrier:
 # rounds of halved damage. drain: share of the damage healed. mana: MP restored (plus 1
 # per 2 levels). all: hits every foe in the battle.
@@ -258,6 +297,22 @@ LOG_SIZE = 1000                  # events kept for the event log (m)
 LOG_HIGHLIGHTS = [('BOSS', 'red'), ('appeared!', 'red'), ('attacked!', 'red'),
                   ('joined the battle', 'red'), ('fainted...', 'red'),
                   ('grew to level', 'yellow'), ('learned', 'green'), ('You won the battle', 'green')]
+# Words and values highlighted inside message, battle, dialogue and log text. The first rule
+# that matches a stretch of text wins; a color of None just makes it bold.
+TEXT_HIGHLIGHTS = [(re.compile(pattern, flags), color) for pattern, flags, color in [
+    (r"super effective|critical hit", re.I, 'yellow'),
+    (r"\b(fainted|died|killed|starving|weak with hunger|hungry|can't escape|no running)\b",
+     re.I, 'red'),
+    (r"\b(burn(s|ed|ing)?|poison(s|ed)?|frozen|freez\w*|paralyz\w*|confus\w*|asleep|"
+     r"sleep(ing)?)\b", re.I, 'magenta'),
+    (r"\b(heal(s|ed)?|restor\w*|cured?|learned|recovered|grew to level \d+|got away safely|"
+     r"won the battle)\b", re.I, 'green'),
+    (r"[+-]?\b\d+ (gold( pieces)?|au)\b", re.I, 'yellow'),
+    (r"[+-]?\b\d+ (HP|MP|EXP)\b", re.I, 'cyan'),
+    (r"\bdepth \d+( of \d+)?", re.I, 'cyan'),
+    (r"\b[A-Z][A-Z'-]*[A-Z](?: [A-Z][A-Z'-]*[A-Z])*\b", 0, None),   # MONSTERS, MOVES, BOSSES
+    (r"[+-]?\b\d+(-\d+)?\b", 0, None),
+]]
 
 # name, damage range, magic power. Physical weapons hit hard and enchant into harder hits.
 # Magic weapons barely hurt in melee, but add their power (and enchantment) to every spell.
@@ -591,6 +646,10 @@ LORE = [
     'Out of mana? MEDITATE costs nothing, and a potion of mana fills you right up.',
     'Golems and slugs have no minds to BEWILDER. Bosses are far too proud to be fooled.',
     'A sword makes your STRIKEs hurt, but a staff or wand makes every spell burn brighter.',
+    'Ogres and trolls stand on weak knees. Aim low and they topple!',
+    'A bat with torn WINGS is just a rat. Aim for the wings.',
+    'The Bone King wears his whole kingdom in that crown. Strike at his HEAD.',
+    'Every creature has a weak spot. Hit it once and you will never forget where it is.',
     'Giants of the Frozen Abyss hate fire. A FIRE BOLT melts them like snow.',
     'Never linger in a fight near a crowd. The whole room will come to the party.',
 ]
@@ -679,16 +738,21 @@ class Trap:
 class Monster:
     def __init__(self, tpl, x, y, depth=0):
         ch, name, hp, ac, dmg, xp, lo, _hi, color, flags = tpl
-        self.ch, self.name, self.ac, self.dmg, self.xp = ch, name, ac, dmg, xp
+        self.ch, self.name, self.ac, self.xp = ch, name, ac, xp
         self.type, *self.moves = MONSTER_INFO[name]
-        self.power = lo * 2 + 1
+        self.parts = BODY_PLANS.get(name) or BODY_PLANS[self.type]
+        self.weak = WEAK_SPOTS[name]
+        self.power = lo * 2 + 2
         self.level = max(1, lo * 2 - 1 + random.randint(0, 2))
-        hp = int(hp * (1 + 0.06 * max(0, depth - lo)))      # tougher the deeper they live
+        deeper = max(0, depth - lo)                           # tougher the deeper they live
+        hp = int(hp * MONSTER_HP_SCALE * (1 + 0.08 * deeper))
         self.hp = self.max_hp = hp + random.randint(0, hp // 3)
+        scale = MONSTER_DMG_SCALE * (1 + 0.04 * deeper)
+        self.dmg = (max(1, round(dmg[0] * scale)), max(2, round(dmg[1] * scale)))
         self.color = color
         self.flags = flags.split()
         self.x, self.y = x, y
-        self.awake = random.random() < 0.5
+        self.awake = random.random() < 0.6
         self.stun = 0
         self.phased = False          # a boss has switched tactics at half HP
         self.status = {}             # battle status -> turns left (see STATUSES)
@@ -781,6 +845,7 @@ class Game:
         self.fallen = None           # last foe beaten, still shown while rewards are read out
         self.shown_hp = [0, 0]       # HP values the battle bars are showing (for animation)
         self.hermit_spawned = False
+        self.weak_known = set()      # monster names whose weak spot the player has found
         self.auto_skip = False       # resolve easy battles without the battle screen
         self.traps = {}              # (x, y) -> Trap
         self.env = ENVIRONMENTS[0]   # the environment of the current level
@@ -928,7 +993,7 @@ class Game:
                 self.add_npc('hermit', random.choice(rooms))
 
         eligible = self.eligible_monsters()
-        for _ in range(4 + self.depth // 2 + random.randint(0, 3)):
+        for _ in range(5 + self.depth // 2 + random.randint(0, 3)):
             x, y = self.free_spot(random.choice(others))
             self.monsters.append(Monster(random.choice(eligible), x, y, self.depth))
 
@@ -1202,11 +1267,11 @@ class Game:
                 return
         else:
             p.regen += 1
-            if p.regen >= max(3, 14 - p.level) and p.hp < p.max_hp:
+            if p.regen >= max(4, 18 - p.level) and p.hp < p.max_hp:
                 p.hp += 1
                 p.regen = 0
             p.mana_regen += 1
-            if p.mana_regen >= max(3, 10 - p.level // 2) and p.mp < p.max_mp:
+            if p.mana_regen >= max(4, 12 - p.level // 2) and p.mp < p.max_mp:
                 p.mp += 1
                 p.mana_regen = 0
         if p.confused:
@@ -1242,10 +1307,10 @@ class Game:
         p.xp += amount
         while p.xp >= xp_needed(p.level):
             p.level += 1
-            gain = random.randint(4, 9)
+            gain = random.randint(3, 8)
             p.max_hp += gain
             p.hp += gain
-            p.max_mp += random.randint(2, 4)
+            p.max_mp += random.randint(2, 3)
             p.restore_mp()
             self.msg(f'{self.name} grew to level {p.level}!')
 
@@ -1373,7 +1438,10 @@ class Game:
                 if MOVES[mv]['mp'] > p.mp:
                     self.say(f'Not enough MP! {mv} costs {MOVES[mv]["mp"]} MP.', log=False)
                     continue
-                self.use_move(m, mv)
+                part = self.aim_menu(m, mv) if 'mult' in MOVES[mv] else None
+                if 'mult' in MOVES[mv] and not part:
+                    continue
+                self.use_move(m, mv, part=part)
             elif choice == 1:                                 # BAG
                 it = self.choose('use', lambda i: i.kind in ('potion', 'scroll', 'food'))
                 if not it:
@@ -1395,7 +1463,7 @@ class Game:
                     self.say(f'There is no running from the {boss.name.upper()}!')
                     continue
                 lvl = max(f.level for f in self.foes)
-                chance = min(0.9, max(0.1, 0.5 + 0.07 * (p.level - lvl) - 0.1 * (len(self.foes) - 1)))
+                chance = min(0.8, max(0.1, 0.4 + 0.07 * (p.level - lvl) - 0.1 * (len(self.foes) - 1)))
                 if random.random() < chance:
                     self.say('Got away safely!')
                     outcome = self.escape()
@@ -1567,13 +1635,15 @@ class Game:
             eff = min(eff, 0.5)                # fire creatures shrug off fire, frost ones ice
         return eff
 
-    def use_move(self, m, name, quiet=False):
+    def use_move(self, m, name, quiet=False, part=None):
+        """part: the body part a physical move is aimed at (None hits wherever it lands)."""
         p = self.player
         info = MOVES[name]
         say = self.msg if quiet else self.say
         p.mp -= info['mp']
         if not quiet:
-            self.say(f'{self.name} used {name}!')
+            self.say(f"{self.name} used {name} on the {self.called(m)}'s {part}!" if part else
+                     f'{self.name} used {name}!')
         if 'heal' in info:
             p.hp = min(p.max_hp, p.hp + sum(random.randint(1, 8) for _ in range(info['heal']))
                        + 2 * p.level)
@@ -1594,13 +1664,17 @@ class Game:
             return
         targets = list(self.foes) if info.get('all') else [m]
         for t in targets:
-            self.hit_foe(t, info, say, quiet, many=len(targets) > 1)
+            self.hit_foe(t, info, say, quiet, many=len(targets) > 1, part=part)
 
-    def hit_foe(self, m, info, say, quiet, many):
+    def hit_chance(self, m, info, part=None):
+        acc = info['acc'] + self.player.level * 2 - m.ac * 3 + (PARTS[part][0] if part else 0)
+        return max(0, min(100, acc))
+
+    def hit_foe(self, m, info, say, quiet, many, part=None):
         """One target of an attacking move: roll to hit, deal damage and apply effects.
         many: the move hits several foes, so each one is named in the battle text."""
         p = self.player
-        if random.randint(1, 100) > info['acc'] + p.level * 2 - m.ac * 3:
+        if random.randint(1, 100) > self.hit_chance(m, info, part):
             if not quiet:
                 self.say(f'The {self.called(m)} avoided the attack!')
             return
@@ -1609,10 +1683,13 @@ class Game:
             if not self.inflict(m, effect[0], say):
                 say('But it failed!')
             return
+        weak = part is not None and part == m.weak
         if 'mult' in info:
             dmg = (random.randint(*p.weapon_dmg) + p.str_bonus) * info['mult']
+            if part:
+                dmg *= PARTS[part][1] * (WEAK_SPOT_MULT if weak else 1)
         else:
-            dmg = (sum(random.randint(1, 6) for _ in range(info['dice'])) + 2 * p.level
+            dmg = (sum(random.randint(1, 6) for _ in range(info['dice'])) + p.level
                    + p.spell_power)
         eff = self.effectiveness(info['type'], m)
         crit = random.random() < 1 / 16
@@ -1625,6 +1702,10 @@ class Game:
                 self.flash('enemy')
                 self.animate_hp()
             notes = ['A critical hit!'] if crit else []
+            if weak and m.name in self.weak_known:
+                notes.append('A hit to its weak spot!')
+            elif weak:
+                notes.append(f"{self.name} found the {m.name.upper()}'s weak spot: its {part}!")
             if eff > 1:
                 notes.append("It's super effective!")
             elif eff < 1:
@@ -1636,6 +1717,8 @@ class Game:
                     self.say(note)
             if 'drain' in info:
                 self.say(f'{self.name} drained the life from the {self.called(m)}!')
+        if weak:
+            self.weak_known.add(m.name)
         if m.hp <= 0:
             return
         if 'sleep' in m.status and random.random() < 1 / 3:
@@ -1815,7 +1898,7 @@ class Game:
                 it = Item('amulet')
                 it.x, it.y = m.x, m.y
                 self.items.append(it)
-        elif random.random() < 0.25 and not self.item_at(m.x, m.y):
+        elif random.random() < 0.2 and not self.item_at(m.x, m.y):
             it = self.random_item()
             it.x, it.y = m.x, m.y
             self.items.append(it)
@@ -1867,6 +1950,31 @@ class Game:
                 self.put(21 + i, 59, note[:20], COLORS['cyan'])
         i = self.select(lambda cur: self.draw_battle(extra=lambda: extra(cur)), len(moves), cols=2)
         return None if i is None else moves[i]
+
+    def aim_menu(self, m, move):
+        """Pick the body part a physical move aims at. Returns the part, or None to go back."""
+        parts, info = m.parts, MOVES[move]
+        known = m.name in self.weak_known
+
+        def extra(cur):
+            self.box(16, 0, 8, 56)
+            self.put(16, 3, f' AIM {move} AT... ', curses.A_BOLD)
+            for i, part in enumerate(parts):
+                r, c = divmod(i, 2)
+                y, x = 17 + r * 2, 3 + c * 26
+                self.put(y, x, ('▶' if i == cur else ' ') + part, curses.A_BOLD if i == cur else 0)
+                if known and part == m.weak:
+                    self.put(y, x + 8, 'WEAK SPOT', COLORS['yellow'] | curses.A_BOLD)
+            self.box(16, 56, 8, 24)
+            part = parts[cur]
+            weak = known and part == m.weak
+            mult = PARTS[part][1] * (WEAK_SPOT_MULT if weak else 1)
+            self.put(17, 59, f'HIT     {self.hit_chance(m, info, part)}%')
+            self.put(18, 59, f'DAMAGE  x{mult:g}', COLORS['yellow'] | curses.A_BOLD if weak else 0)
+            self.put(20, 59, 'its weak spot!' if weak else 'weak spot: ???' if not known else '',
+                     COLORS['cyan'])
+        i = self.select(lambda cur: self.draw_battle(extra=lambda: extra(cur)), len(parts), cols=2)
+        return None if i is None else parts[i]
 
     def battle_transition(self):
         for y in range(24):
@@ -1923,7 +2031,8 @@ class Game:
         if 'boss' in m.flags:
             self.put(2, 22, 'BOSS', COLORS['red'] | curses.A_BOLD | curses.A_REVERSE)
         self.put(2, 30, f'Lv{m.level}')
-        self.hp_bar(3, 4, self.shown_hp[0], m.max_hp, 26)
+        self.hp_bar(3, 4, self.shown_hp[0], m.max_hp, 20)
+        self.put(3, 28, f'{max(0, self.shown_hp[0]):>3}/{m.max_hp:>3}', curses.A_BOLD)
         if m.status and m.hp > 0:
             tags = ' '.join(STATUSES[s][0] for s in m.status)
             self.put(4, 5, f' {tags} ', COLORS['magenta'] | curses.A_BOLD)
@@ -1966,7 +2075,7 @@ class Game:
         # text box
         self.box(16, 0, 8, 80)
         for i, line in enumerate(text or []):
-            self.put(18 + i * 2, 3, line)
+            self.put_rich(18 + i * 2, 3, line)
         if more:
             self.put(21, 76, '▼', curses.A_BOLD | curses.A_BLINK)
         if extra:
@@ -2041,7 +2150,7 @@ class Game:
         self.box(16, 0, 8, 80)
         self.put(16, 3, f' {npc.name} ', COLORS[npc.color] | curses.A_BOLD | curses.A_REVERSE)
         for i, line in enumerate(text):
-            self.put(18 + i * 2, 3, line)
+            self.put_rich(18 + i * 2, 3, line)
         if more:
             self.put(21, 76, '▼', curses.A_BOLD | curses.A_BLINK)
         if options:
@@ -2087,6 +2196,10 @@ class Game:
             if c == 0:
                 say('In battle you may FIGHT, open your BAG, GUARD to halve the next blow, '
                     'or try to RUN. Running works best against weaker foes.')
+                say('When you STRIKE or POWER SMASH, you choose where to hit. The HEAD is hard '
+                    'to hit but hurts more, and every monster has a weak spot somewhere.')
+                say('Hit a weak spot once and you will remember it for every monster of that '
+                    'kind. It is never the BODY, so be bold!')
                 say('A monster you escape from is dazed for a few turns. Use them well!')
                 say('Battles are noisy, and every round is a turn in the dungeon. Fight too '
                     'long and other monsters will join in!')
@@ -2174,7 +2287,7 @@ class Game:
     def talk_healer(self, npc):
         p = self.player
         say = lambda t: self.npc_say(npc, t)
-        cost = 0 if not npc.done else 10 + self.depth * 5
+        cost = 0 if not npc.done else 20 + self.depth * 8
         if not npc.talked:
             say('Peace be with you, traveler. You look weary from the road.')
         price = 'free, this once' if cost == 0 else f'{cost} gold'
@@ -2511,7 +2624,7 @@ class Game:
         self.use_up(it)
         self.known.add(kind)
         if kind == 'healing':
-            p.hp = min(p.max_hp, p.hp + random.randint(8, 14) + p.level * 2)
+            p.hp = min(p.max_hp, p.hp + random.randint(6, 11) + p.level * 2)
             p.cure()
             self.msg('You begin to feel better.')
         elif kind == 'extra healing':
@@ -2715,13 +2828,28 @@ class Game:
         except curses.error:
             pass
 
+    def put_rich(self, y, x, text, attr=0):
+        """Draw a line of message text with its important words and values highlighted."""
+        spans = []
+        for rx, color in TEXT_HIGHLIGHTS:
+            for found in rx.finditer(text):
+                start, end = found.span()
+                if all(end <= a or start >= b for a, b, _ in spans):
+                    spans.append((start, end, (COLORS[color] if color else attr) | curses.A_BOLD))
+        pos = 0
+        for start, end, hl in sorted(spans):
+            self.put(y, x + pos, text[pos:start], attr)
+            self.put(y, x + start, text[start:end], hl)
+            pos = end
+        self.put(y, x + pos, text[pos:], attr)
+
     def draw(self, top_lines, more=False, refresh=True):
         scr, p = self.scr, self.player
         scr.erase()
         for i, line in enumerate(top_lines[:2]):
+            self.put_rich(i, 0, line)
             if more and i == len(top_lines[:2]) - 1:
-                line += ' --More--'
-            self.put(i, 0, line)
+                self.put(i, len(line) + 1, '--More--', curses.A_REVERSE)
 
         wall = self.env['wall']
         tile_colors = {HWALL: wall, VWALL: wall, DOOR: 'yellow',
@@ -2778,21 +2906,21 @@ class Game:
             scr.refresh()
 
     def log_lines(self, width, entries, stamps=True):
-        """Event log entries as (text, attr) screen lines wrapped to `width`, oldest first.
-        A header marks every change of depth; stamps puts the turn number in front."""
+        """Event log entries as (prefix, text, attr) screen lines wrapped to `width`, oldest
+        first. A header marks every change of depth; stamps puts the turn number in front."""
         lines, depth = [], None
         pad = 7 if stamps else 2
         for turn, d, text, n in entries:
             if d != depth:
                 depth = d
-                lines.append((f'-- Depth {d}: {environment(max(1, d))["name"]} --'[:width],
+                lines.append(('', f'-- Depth {d}: {environment(max(1, d))["name"]} --'[:width],
                               COLORS['cyan'] | curses.A_BOLD))
             if n > 1:
                 text += f' (x{n})'
             attr = next((COLORS[c] | curses.A_BOLD for key, c in LOG_HIGHLIGHTS if key in text), 0)
             for i, part in enumerate(textwrap.wrap(text, width - pad) or ['']):
                 head = (f'{turn:>5}  ' if stamps else '- ') if i == 0 else ' ' * pad
-                lines.append((head + part, attr))
+                lines.append((head, part, attr))
         return lines
 
     def draw_log_panel(self):
@@ -2806,22 +2934,24 @@ class Game:
             return
         self.put(top, left, ' RECENT EVENTS '.center(width, '─'), COLORS['cyan'])
         lines = self.log_lines(width, self.log[-height:], stamps=False)[-height:]
-        for i, (line, attr) in enumerate(lines):
-            self.put(top + 1 + i, left, line, attr)
+        for i, (head, line, attr) in enumerate(lines):
+            self.put(top + 1 + i, left, head)
+            self.put_rich(top + 1 + i, left + len(head), line, attr)
 
     def show_log(self):
         """Scroll through the event log. It opens at the newest events."""
         rows, cols = self.scr.getmaxyx()
         width, height = min(cols, 120) - 1, rows - 2
-        lines = self.log_lines(width, self.log) or [('Nothing has happened yet.', 0)]
+        lines = self.log_lines(width, self.log) or [('', 'Nothing has happened yet.', 0)]
         bottom = max(0, len(lines) - height)
         top = bottom
         while True:
             self.scr.erase()
             self.put(0, 0, f' EVENT LOG   (turn {self.turn}, depth {self.depth})'.ljust(width),
                      curses.A_REVERSE)
-            for i, (line, attr) in enumerate(lines[top:top + height]):
-                self.put(1 + i, 0, line, attr)
+            for i, (head, line, attr) in enumerate(lines[top:top + height]):
+                self.put(1 + i, 0, head, COLORS['blue'])
+                self.put_rich(1 + i, len(head), line, attr)
             where = 'end' if top >= bottom else f'{top + height}/{len(lines)}'
             self.put(rows - 1, 0, f' up/down or j/k: scroll   PgUp/PgDn/space: page   '
                      f'g/G: start/end   Esc: close   [{where}] '[:width], curses.A_REVERSE)
@@ -2900,13 +3030,13 @@ class Game:
         '  , or g            pick up item         >  go down stairs',
         '  i  inventory      m  event log (all that happened)   ?  help     Q  quit',
         '  q  quaff potion   r  read scroll   e  eat food       S  spells & weapon',
-        '  w  wield weapon   W  wear armor    d  drop item',
-        '  A  toggle auto-skip of easy battles',
+        '  w  wield weapon   W  wear armor    d  drop item       A  auto-skip battles',
         '',
         'BATTLES, TRAPS & TALKING',
         '  Bump a monster to fight. In battle, S skips easy fights and M opens the log.',
         '  In menus: arrows/hjkl move the cursor, Enter/space/z choose, Esc/x go back.',
         '  Walk into a friendly character (&) to talk to them.',
+        '  STRIKE and POWER SMASH are aimed. Hit a monster\'s weak spot for extra damage.',
         '  Traps are hidden until found; known traps (^) ask before you step on them.',
         f'  Spells cost MP and come from spell scrolls (r). You can know {MAX_SPELLS} at once.',
         'SYMBOLS',
