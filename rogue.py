@@ -32,9 +32,10 @@ MAX_PACK = 20
 ROCK, FLOOR, CORRIDOR, DOOR, STAIRS = ' ', '.', '#', '+', '>'
 HWALL, VWALL = '-', '|'
 CAVE_WALL, POOL = '%', '~'       # a pool is lava or icy water, depending on the environment
+PILLAR = '0'                     # stone pillars in the halls of the Catacombs
 WALKABLE = {FLOOR, CORRIDOR, DOOR, STAIRS}
-OPAQUE = {ROCK, HWALL, VWALL, CAVE_WALL}
-WALLS = {HWALL, VWALL, CAVE_WALL}
+OPAQUE = {ROCK, HWALL, VWALL, CAVE_WALL, PILLAR}
+WALLS = {HWALL, VWALL, CAVE_WALL, PILLAR}
 
 # kind: (name, color). Traps are hidden (^ once found).
 TRAPS = {
@@ -48,7 +49,8 @@ TRAPS = {
     'frost':    ('frost trap', 'cyan'),
 }
 
-# Five levels each. layout: 'rooms', 'crypts' (many small rooms) or 'caves'.
+# Five levels each. layout: 'rooms', 'crypts' (tombs on a grid, with pillared halls),
+# 'caves' or 'glacier' (open caves split by crevasses of icy water).
 # pool: (name, color, warning, what happens if you stumble in) for cave pools.
 ENVIRONMENTS = [
     {'name': 'Dungeons of Doom', 'depth': 1, 'layout': 'rooms', 'wall': 'yellow',
@@ -64,12 +66,12 @@ ENVIRONMENTS = [
      'traps': ['dart', 'pit', 'teleport', 'sleep', 'fire', 'fire', 'trapdoor'],
      'intro': 'The worked stone gives way to raw caverns glowing with lava. '
               'Welcome to the Ember Caverns.'},
-    {'name': 'Frozen Abyss', 'depth': 16, 'layout': 'caves', 'wall': 'cyan',
+    {'name': 'Frozen Abyss', 'depth': 16, 'layout': 'glacier', 'wall': 'cyan',
      'pool': ('icy water', 'blue', 'The icy water would freeze you solid!',
-              'You stumble into the icy water! It is freezing!'), 'pools': (4, 7),
+              'You stumble into the icy water! It is freezing!'), 'pools': (1, 3),
      'traps': ['dart', 'pit', 'teleport', 'sleep', 'frost', 'frost', 'trapdoor'],
-     'intro': 'A bitter wind howls up from below as the lava gives way to ice. '
-              'Welcome to the Frozen Abyss.'},
+     'intro': 'A bitter wind howls up from below as the lava gives way to ice, split by '
+              'deep crevasses. Welcome to the Frozen Abyss.'},
 ]
 
 # A boss waits at the end of each half of the game. Its level has no stairs until it
@@ -615,7 +617,51 @@ NPC_INFO = {
   ~~|||~~
    /   \
 ''')),
+    'smith': ('BRAM THE SMITH', 'red', sprite(r'''
+   _____
+  ( o o )
+  ( === )  _
+  /|[ ]|\|=|
+   |___|  |
+''')),
+    'arcanist': ('MAGE ORIEL', 'blue', sprite(r'''
+     /\
+    /**\    *
+   ( o o)  /
+    \_~/  /
+   /|##|\/
+''')),
+    'gambler': ('LUCKY LOU', 'yellow', sprite(r'''
+   _____
+  /_____\
+  ( ^ o )
+   ( ~ )  [:]
+  /|_$_|\ [.]
+''')),
+    'seer': ('MADAME ZARA', 'magenta', sprite(r'''
+   .~~~.
+  ( * * )
+   ( - )
+  /|~~~|\
+    (O)
+''')),
+    'ghost': ('A RESTLESS SPIRIT', 'white', sprite(r'''
+   .---.
+  ( O O )
+  |  o  |
+  |     |
+  'v'v'v'
+''')),
 }
+# Who may turn up on an ordinary level: kind -> (chance, first depth, only in this layout).
+# The sage waits on depth 1, the hermit may turn up as well, and the healer waits before a
+# boss if she hasn't shown up yet. Everyone but the merchant appears once per game.
+NPC_SPAWNS = {
+    'merchant': (0.5, 2, None), 'healer': (0.35, 2, None), 'bard': (0.3, 2, None),
+    'arcanist': (0.2, 2, None), 'gambler': (0.2, 2, None), 'seer': (0.2, 3, None),
+    'smith': (0.25, 3, None), 'ghost': (0.5, 1, 'crypts'),
+}
+MAX_NPCS = 3                     # friendly characters on one level, not counting the hermit
 
 SONGS = [
     ['~ Down in the dark where the kobolds creep,',
@@ -764,7 +810,9 @@ class NPC:
         self.name, self.color, self.portrait = NPC_INFO[kind]
         self.talked = 0
         self.done = False
-        self.stock = []
+        self.stock = []              # a merchant's wares, or the spells a mage teaches
+        self.used = set()            # services already given (the smith works on each once)
+        self.purse = 0               # what the gambler can still lose
 
 
 class Player:
@@ -844,7 +892,7 @@ class Game:
         self.asleep = False          # knocked out by sleeping gas
         self.fallen = None           # last foe beaten, still shown while rewards are read out
         self.shown_hp = [0, 0]       # HP values the battle bars are showing (for animation)
-        self.hermit_spawned = False
+        self.npcs_met = set()        # kinds that have appeared; only merchants come back
         self.weak_known = set()      # monster names whose weak spot the player has found
         self.auto_skip = False       # resolve easy battles without the battle screen
         self.traps = {}              # (x, y) -> Trap
@@ -953,8 +1001,11 @@ class Game:
             self.tiles = [[ROCK] * MAP_W for _ in range(MAP_H)]
             if env['layout'] == 'caves':
                 rooms = self.make_caves(env['pools'])
+            elif env['layout'] == 'glacier':
+                rooms = self.make_caves(env['pools'], open_chance=0.6,
+                                        crevasses=random.randint(1, 2))
             elif env['layout'] == 'crypts':
-                rooms = self.make_rooms(12, (5, 10), (5, 7))
+                rooms = self.make_crypts()
             else:
                 rooms = self.make_rooms()
             if len(rooms) >= 4:
@@ -983,13 +1034,16 @@ class Game:
         if self.depth == 1:
             self.add_npc('sage', rooms[0])
         elif boss:
-            self.add_npc('healer', rooms[0])     # one last chance to patch up first
+            if 'healer' not in self.npcs_met:
+                self.add_npc('healer', rooms[0])     # one last chance to patch up first
         else:
-            for kind, chance in (('merchant', 0.5), ('healer', 0.35), ('bard', 0.3)):
-                if random.random() < chance:
-                    self.add_npc(kind, random.choice(rooms))
-            if not self.hermit_spawned and (random.random() < 0.3 or self.depth == 6):
-                self.hermit_spawned = True
+            kinds = [k for k, (chance, first, layout) in NPC_SPAWNS.items()
+                     if self.depth >= first and layout in (None, env['layout'])
+                     and (k == 'merchant' or k not in self.npcs_met)
+                     and random.random() < chance]
+            for kind in random.sample(kinds, min(len(kinds), MAX_NPCS)):
+                self.add_npc(kind, random.choice(rooms))
+            if 'hermit' not in self.npcs_met and (random.random() < 0.3 or self.depth == 6):
                 self.add_npc('hermit', random.choice(rooms))
 
         eligible = self.eligible_monsters()
@@ -1028,8 +1082,14 @@ class Game:
 
     def add_npc(self, kind, room):
         npc = NPC(kind, *self.free_spot(room))
+        self.npcs_met.add(kind)
         if kind == 'merchant':
             npc.stock = [self.shop_item() for _ in range(random.randint(4, 6))]
+        elif kind == 'arcanist':
+            spells = [s for s, (depth, _price) in SPELLS.items() if depth <= self.depth + 1]
+            npc.stock = random.sample(spells, min(3, len(spells)))
+        elif kind == 'gambler':
+            npc.purse = 100 + self.depth * 25
         self.npcs.append(npc)
 
     def shop_item(self):
@@ -1066,17 +1126,56 @@ class Game:
                 self.tunnel(*random.sample(rooms, 2))
         return rooms
 
-    def make_caves(self, pools):
-        """Cellular-automaton caves dotted with pools (lava or icy water).
-        Returns zones of the map that the rest of the code uses like rooms."""
+    def make_crypts(self):
+        """The Catacombs: tombs laid out on a 5x2 grid, each joined to its neighbors along
+        the row, with a couple of passages between the rows. Big halls get rows of pillars."""
+        grid = {}
+        for gx in range(5):
+            for gy in range(2):
+                if random.random() < 0.15:
+                    continue                          # an empty cell: a collapsed tomb
+                w, h = random.randint(6, 13), random.randint(5, 8)
+                x = gx * 16 + random.randint(1, 15 - w)
+                y = random.randint(0, 9 - h) if gy == 0 else random.randint(11, 20 - h)
+                grid[gx, gy] = Room(x, y, w, h)
+        for r in grid.values():
+            for yy in range(r.y, r.y + r.h):
+                for xx in range(r.x, r.x + r.w):
+                    self.tiles[yy][xx] = (HWALL if yy in (r.y, r.y + r.h - 1) else
+                                          VWALL if xx in (r.x, r.x + r.w - 1) else FLOOR)
+        rooms = list(grid.values())
+        self.corners = set().union(*(r.corners() for r in rooms)) if rooms else set()
+        rows = [[grid[gx, gy] for gx in range(5) if (gx, gy) in grid] for gy in (0, 1)]
+        for row in rows:
+            for a, b in zip(row, row[1:]):
+                self.tunnel(a, b)
+        if all(rows):
+            for a in random.sample(rows[0], min(2, len(rows[0]))):
+                b = min(rows[1], key=lambda r: abs(r.center()[0] - a.center()[0]))
+                self.tunnel(a, b)
+        for r in rooms:
+            if r.w >= 9 and r.h >= 7:                 # rows of pillars, clear of the doors
+                for py in (r.y + 2, r.y + r.h - 3):
+                    for px in range(r.x + 2, r.x + r.w - 2, 2):
+                        if self.tiles[py][px] == FLOOR:
+                            self.tiles[py][px] = PILLAR
+        rooms.sort(key=lambda r: r.center()[0])
+        return rooms
+
+    def make_caves(self, pools, open_chance=0.56, crevasses=0):
+        """Cellular-automaton caves dotted with pools (lava or icy water), optionally split
+        by crevasses of icy water. Returns zones of the map that the rest of the code uses
+        like rooms."""
         W, H = MAP_W, MAP_H
-        cave = [[0 < x < W - 1 and 0 < y < H - 1 and random.random() < 0.56
+        cave = [[0 < x < W - 1 and 0 < y < H - 1 and random.random() < open_chance
                  for x in range(W)] for y in range(H)]
         for _ in range(5):
             cave = [[0 < x < W - 1 and 0 < y < H - 1 and
                      sum(not cave[y + dy][x + dx] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) < 5
                      for x in range(W)] for y in range(H)]
         pool_cells = set()
+        for _ in range(crevasses):
+            self.carve_crevasse(cave, pool_cells)
         open_cells = [(x, y) for y in range(H) for x in range(W) if cave[y][x]]
         for _ in range(random.randint(*pools)):
             x, y = random.choice(open_cells)
@@ -1123,6 +1222,22 @@ class Game:
                     zones.append(z)
         zones.sort(key=lambda r: r.center()[0])
         return zones
+
+    def carve_crevasse(self, cave, pool_cells):
+        """Cut a winding, two-wide crevasse from the top of the map to the bottom, crossed by
+        a few narrow ice bridges."""
+        W, H = MAP_W, MAP_H
+        x = random.randint(14, W - 16)
+        bridges = random.sample(range(2, H - 2), 3)
+        for y in range(1, H - 1):
+            if y in bridges:
+                for bx in range(x - 3, x + 5):        # the bridge and solid ground at each end
+                    cave[y][bx] = True
+            else:
+                for cx in (x, x + 1):
+                    cave[y][cx] = False
+                    pool_cells.add((cx, y))
+            x = max(6, min(W - 8, x + random.choice((-1, 0, 0, 1))))
 
     def tunnel(self, a, b):
         """Dig a corridor between two rooms. Walls are expensive and may only be
@@ -2226,6 +2341,10 @@ class Game:
             elif c == 3:
                 say('Look for the & sign on deeper floors. Merchants trade for gold, healers '
                     'mend wounds, and bards know many secrets.')
+                say('A smith can improve your weapon and armor, a mage teaches spells, and a '
+                    'seer can show you a whole floor. Never bet more than you can lose!')
+                say('And in the Catacombs, they say the dead still whisper of what they '
+                    'learned too late...')
             else:
                 say('Good luck down there!')
                 return
@@ -2360,6 +2479,188 @@ class Game:
         say('Oh, thank you, thank you! Here, I found this long ago. It is no use to an old man.')
         self.give_item(npc, Item('scroll', random.choice(['enchant weapon', 'enchant armor'])))
 
+    def talk_smith(self, npc):
+        p = self.player
+        say = lambda t: self.npc_say(npc, t)
+        if not npc.talked:
+            say('Hah, a customer! Bram the Smith. There is nothing down here I cannot hammer '
+                'into better shape.')
+        cost = 50 + self.depth * 10
+        while True:
+            c = self.npc_ask(npc, f'Each piece once, {cost} gold apiece. (You have {p.gold} gold.)',
+                             ['Improve my weapon', 'Reinforce my armor', 'Goodbye'])
+            if c == 2:
+                say('Keep that edge sharp!')
+                return
+            slot = ('weapon', 'armor')[c]
+            gear = p.weapon if slot == 'weapon' else p.armor
+            if not gear:
+                say(f'You have no {slot} on you! I cannot work on thin air.')
+            elif slot in npc.used:
+                say('I have done all I can for that. Any more and it would crack!')
+            elif p.gold < cost:
+                say(f'Good steel costs good coin. Come back with {cost} gold.')
+            else:
+                p.gold -= cost
+                npc.used.add(slot)
+                gear.ench += 1
+                if slot == 'weapon':
+                    say(f'*CLANG* *CLANG* Your {gear.sub} is better than ever! {self.weapon_note()}')
+                else:
+                    say(f'*CLANG* *CLANG* Your {gear.sub} is sturdier now. Your defense is {p.ac}.')
+                self.record(f'Bram the Smith improved your {gear.sub}.')
+
+    def talk_arcanist(self, npc):
+        p = self.player
+        say = lambda t: self.npc_say(npc, t)
+        if not npc.talked:
+            say('Mage Oriel, scholar of the deep arts. I teach spells, for a fee. Knowledge is '
+                'never free, and scrolls are so very rare.')
+        mana_cost = 15 + self.depth * 3
+        while True:
+            c = self.npc_ask(npc, f'What do you seek? (You have {p.gold} gold.)',
+                             ['Learn a spell', f'Restore my mana ({mana_cost}g)', 'Goodbye'])
+            if c == 0:
+                lessons = [s for s in npc.stock if s not in p.moves]
+                if not lessons:
+                    say('You already know everything I can teach you.')
+                    continue
+                opts = [f'{s:<16} {MOVES[s]["type"].upper():<8} {SPELLS[s][1]:>4}g'
+                        for s in lessons] + ['Back']
+                i = self.npc_ask(npc, 'Which spell shall I teach you? '
+                                 f'(You know {len(p.spells)} of {MAX_SPELLS}.)', opts)
+                if i == len(lessons):
+                    continue
+                spell = lessons[i]
+                cost = SPELLS[spell][1]
+                if p.gold < cost:
+                    say(f'That lesson costs {cost} gold. Come back when your purse is heavier.')
+                    continue
+                if len(p.spells) >= MAX_SPELLS:
+                    old = self.pick_forget(spell)
+                    if not old:
+                        say('Make room in that head of yours first, then.')
+                        continue
+                    p.moves.remove(old)
+                    say(f'First we must clear the mind... {self.name} forgot {old}.')
+                p.gold -= cost
+                p.moves.append(spell)
+                say(f'Repeat after me... Good! {self.name} learned {spell}!')
+                self.record(f'Mage Oriel taught you {spell}.')
+            elif c == 1:
+                if p.mp >= p.max_mp:
+                    say('Your mana is already full to the brim.')
+                elif p.gold < mana_cost:
+                    say(f'Even mana has its price. {mana_cost} gold, please.')
+                else:
+                    p.gold -= mana_cost
+                    p.restore_mp()
+                    say('Oriel touches your brow, and power floods back in. MP fully restored!')
+            else:
+                say('May your spells fly true.')
+                return
+
+    def talk_gambler(self, npc):
+        p = self.player
+        say = lambda t: self.npc_say(npc, t)
+        if not npc.talked:
+            say("Lucky Lou's the name, and dice are the game! Roll higher than me and I double "
+                'your bet.')
+        base = 10 + self.depth * 2
+        bets = [base, base * 2, base * 5]
+        while True:
+            if npc.purse <= 0:
+                say("You cleaned me out, pal! Lou's table is closed.")
+                return
+            c = self.npc_ask(npc, f'Care to roll? (You have {p.gold} gold.)',
+                             [f'Bet {b} gold' for b in bets] + ['The rules', 'Goodbye'])
+            if c == 3:
+                say('We each roll two dice. Roll higher and you win your bet, but ties go to '
+                    'Lou. Roll DOUBLE SIXES and I pay you triple!')
+                continue
+            if c == 4:
+                say('Come back when you feel lucky!')
+                return
+            bet = bets[c]
+            if p.gold < bet:
+                say('No coin, no game, pal.')
+                continue
+            mine = random.randint(1, 6), random.randint(1, 6)
+            lous = random.randint(1, 6), random.randint(1, 6)
+            say(f'You roll {mine[0]} and {mine[1]}... Lou rolls {lous[0]} and {lous[1]}...')
+            if sum(mine) > sum(lous):
+                won = min(npc.purse, bet * (3 if mine == (6, 6) else 1))
+                npc.purse -= won
+                p.gold += won
+                say(('DOUBLE SIXES! ' if mine == (6, 6) else '') + f'You win {won} gold! '
+                    'Beginner\'s luck, I tell you.')
+            else:
+                npc.purse += bet
+                p.gold -= bet
+                say(('A tie, and ties go to Lou! ' if sum(mine) == sum(lous) else 'Lou wins! ') +
+                    f'That is {bet} gold for me. Better luck next time!')
+
+    def talk_seer(self, npc):
+        p = self.player
+        say = lambda t: self.npc_say(npc, t)
+        if not npc.talked:
+            say('Come closer, child... Madame Zara sees all. The past, the future, and the '
+                'floor plan.')
+        cost = 30 + self.depth * 5
+        while True:
+            c = self.npc_ask(npc, f'What shall the crystal show you? (You have {p.gold} gold.)',
+                             [f'This floor ({cost}g)', 'My fortune', 'Goodbye'])
+            if c == 0:
+                if npc.done:
+                    say('The crystal is clouded. It has shown you all there is to see here.')
+                elif p.gold < cost:
+                    say(f'The spirits demand {cost} gold, child.')
+                else:
+                    p.gold -= cost
+                    npc.done = True
+                    self.map_level()
+                    for t in self.traps.values():
+                        t.found = True
+                    say('The crystal swirls... The whole floor, and every trap on it, lies bare '
+                        'before you!')
+                    self.record('Madame Zara revealed the map and traps of this floor.')
+            elif c == 1:
+                say(self.fortune())
+            else:
+                say('We will meet again... I have foreseen it.')
+                return
+
+    def fortune(self):
+        boss_depth = next((d for d in range(self.depth, FINAL_DEPTH + 1) if boss_at(d)), None)
+        nxt = next((e for e in ENVIRONMENTS if e['depth'] > self.depth), None)
+        fortunes = [random.choice(LORE)]
+        if boss_depth:
+            n = boss_depth - self.depth
+            fortunes.append(f'I see a shadow... the {boss_at(boss_depth).upper()}, {n} floor'
+                            f'{"s" if n != 1 else ""} below you. It is waiting for you.')
+        if nxt:
+            fortunes.append(f'Deeper still, I see the {nxt["name"]}. Prepare yourself before '
+                            f'you reach depth {nxt["depth"]}.')
+        if self.player.gold < 20:
+            fortunes.append('I see... an empty purse. Yours, I think.')
+        return random.choice(fortunes)
+
+    def talk_ghost(self, npc):
+        say = lambda t: self.npc_say(npc, t)
+        say('Ooooh... another living soul, wandering my tomb...')
+        say('I fell here long ago. Too late I learned where these creatures are weakest. '
+            'Let my knowledge serve you better...')
+        names = sorted({t[1] for t in self.eligible_monsters()} - self.weak_known)
+        secrets = random.sample(names, min(3, len(names)))
+        if not secrets:
+            say('But you already know all that I knew. Go in peace...')
+        for name in secrets:
+            self.weak_known.add(name)
+            say(f'The {name.upper()}... strike at its {WEAK_SPOTS[name]}.')
+            self.record(f'The spirit whispered: {an(name)} is weak in its {WEAK_SPOTS[name]}.')
+        say('Avenge me... The spirit fades away into the cold stone.')
+        self.npcs.remove(npc)
+
     # -------------------------------------------------------------- player
     def player_move(self, dx, dy):
         p = self.player
@@ -2446,6 +2747,7 @@ class Game:
             self.msg(f'You carefully step over the {trap.name}.' if careful else
                      f'You notice {an(trap.name)} just in time and leap aside!')
             return
+        del self.traps[(p.x, p.y)]          # a trap that goes off is used up
         kind = trap.kind
         if kind == 'dart':
             self.msg('A small dart shoots out and hits you!')
@@ -2720,6 +3022,19 @@ class Game:
         self.put(23, 0, f' {footer} '[:79], curses.A_REVERSE)
         self.scr.refresh()
 
+    def map_level(self):
+        for y in range(MAP_H):
+            for x in range(MAP_W):
+                if self.tiles[y][x] != ROCK:
+                    self.explored[y][x] = True
+
+    def weapon_note(self):
+        """What the wielded weapon now does, after it was improved."""
+        p = self.player
+        if p.weapon.magic:
+            return f'Your spells now get +{p.spell_power}.'
+        return f'It now hits for {p.weapon_dmg[0]}-{p.weapon_dmg[1]}.'
+
     def read_scroll(self, it):
         p = self.player
         kind = it.sub
@@ -2728,10 +3043,7 @@ class Game:
         self.use_up(it)
         self.known.add(kind)
         if kind == 'magic mapping':
-            for y in range(MAP_H):
-                for x in range(MAP_W):
-                    if self.tiles[y][x] != ROCK:
-                        self.explored[y][x] = True
+            self.map_level()
             self.msg('Oh, now this scroll has a map on it.')
         elif kind == 'teleportation':
             p.x, p.y = self.free_spot(random.choice(self.rooms))
@@ -2740,10 +3052,7 @@ class Game:
         elif kind == 'enchant weapon':
             if p.weapon:
                 p.weapon.ench += 1
-                w = p.weapon
-                self.msg(f'Your {w.sub} glows blue for a moment. ' +
-                         (f'Your spells now get +{p.spell_power}.' if w.magic else
-                          f'It now hits for {p.weapon_dmg[0]}-{p.weapon_dmg[1]}.'))
+                self.msg(f'Your {p.weapon.sub} glows blue for a moment. {self.weapon_note()}')
             else:
                 self.msg('Your hands tingle.')
         elif kind == 'enchant armor':
@@ -2854,7 +3163,8 @@ class Game:
         wall = self.env['wall']
         tile_colors = {HWALL: wall, VWALL: wall, DOOR: 'yellow',
                        FLOOR: 'white', CORRIDOR: 'white', STAIRS: 'green',
-                       CAVE_WALL: wall, POOL: self.env.get('pool', ('', 'red'))[1]}
+                       CAVE_WALL: wall, PILLAR: wall,
+                       POOL: self.env.get('pool', ('', 'red'))[1]}
         for y in range(MAP_H):
             row = self.tiles[y]
             for x in range(MAP_W):
@@ -3037,11 +3347,11 @@ class Game:
         '  In menus: arrows/hjkl move the cursor, Enter/space/z choose, Esc/x go back.',
         '  Walk into a friendly character (&) to talk to them.',
         '  STRIKE and POWER SMASH are aimed. Hit a monster\'s weak spot for extra damage.',
-        '  Traps are hidden until found; known traps (^) ask before you step on them.',
+        '  Traps are hidden and each goes off only once. Known traps (^) warn you first.',
         f'  Spells cost MP and come from spell scrolls (r). You can know {MAX_SPELLS} at once.',
         'SYMBOLS',
         '  @ you  & friend  > stairs  ! potion  ? scroll  ) weapon  ] armor  ^ trap',
-        '  : food  * gold  " Amulet  + door  # corridor  % cave wall  ~ lava / icy water',
+        '  : food  * gold  " Amulet  + door  # corridor  % rock  ~ lava/water  0 pillar',
         '',
         f'Beat the bosses on depths 10 and {FINAL_DEPTH} and claim the Amulet of Yendor.',
     ]

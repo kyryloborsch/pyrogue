@@ -25,9 +25,9 @@ Run it directly in a real terminal window. It won't start from an IDE output pan
 | Depths | Environment       | Layout                                   |
 |--------|-------------------|------------------------------------------|
 | 1–5    | Dungeons of Doom  | Classic rooms and corridors              |
-| 6–10   | Sunken Catacombs  | Many small tomb rooms. The Bone King waits on depth 10 |
+| 6–10   | Sunken Catacombs  | Tombs laid out on a grid, with rows of pillars in the larger halls. The Bone King waits on depth 10 |
 | 11–15  | Ember Caverns     | Open caves with lava pools               |
-| 16–20  | Frozen Abyss      | Icy caves with freezing water. The Frost Wyrm guards the Amulet on depth 20 |
+| 16–20  | Frozen Abyss      | Open ice caves split by crevasses of freezing water, crossed by narrow ice bridges. The Frost Wyrm guards the Amulet on depth 20 |
 
 A boss level has no stairs down until the boss falls. At half HP, each boss changes tactics.
 
@@ -39,7 +39,15 @@ A boss level has no stairs down until the boss falls. At half HP, each boss chan
 - **Spells.** Rare spell scrolls teach 12 spells, from Fire Bolt and Heal to Chain Lightning (hits every foe), Bewilder (confuses a foe) and Meditate (restores MP). You can know 4 spells at once. To learn a fifth, you forget one, or keep the scroll for later. `S` shows your moves and what your weapon adds to them.
 - **Physical and magic weapons.** Swords, maces and spears make STRIKE and POWER SMASH hit harder. Wands and staffs barely hurt in melee, but add their power to every attack spell. Enchanting a weapon improves whichever of these it does.
 - **Event log.** Every message, including each line of battle text, goes into a scrollable log (`m`, or `M` during a battle), stamped with the turn number and grouped by depth. In a terminal wider than 104 columns or taller than 28 rows, the latest events also stay on screen in a side or bottom panel.
-- **Friendly characters (`&`).** Walk into one to talk. The sage gives advice, merchants sell items for gold, healers patch you up, and bards play for you.
+- **Friendly characters (`&`).** Walk into one to talk. Up to three can turn up on a floor. Merchants can show up again and again, but everyone else appears only once per game:
+  - The **sage** gives advice on depth 1.
+  - **Merchants** buy and sell, **healers** patch you up, and **bards** sing and sell secrets.
+  - **Bram the Smith** improves your weapon and armor once each, for gold.
+  - **Mage Oriel** teaches spells and restores your mana.
+  - **Madame Zara** reveals a floor's map and traps, and tells your fortune.
+  - **Lucky Lou** plays dice with you, with ties going to the house.
+  - A hungry **hermit** trades a scroll for food.
+  - In the Catacombs, a **restless spirit** whispers the weak spots of nearby monsters, then fades away.
 - **Classic roguelike systems.** Unidentified potions and scrolls, hidden traps, hunger, weapons and armor you can enchant, and a tombstone when you die.
 
 ## Controls
@@ -71,7 +79,7 @@ In menus, arrows or `hjkl` move the cursor, `Enter`/`Space`/`z` choose, and `Esc
 ```
 @ you      & friend   > stairs   ! potion   ? scroll   ) weapon   ] armor
 ^ trap     : food     * gold     " Amulet   + door     # corridor
-% cave wall           ~ lava / icy water
+% cave wall           ~ lava / icy water   0 pillar
 ```
 
 ## License
