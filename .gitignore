@@ -10,3 +10,6 @@ venv/
 # Editor / OS
 .vscode/
 .DS_Store
+
+# Saved games
+saves/

@@ -255,7 +255,7 @@ class UIMixin:
         '  z                 rest until HP and MP are full      b j n',
         '  s                 search for hidden traps (and items, in rooms)',
         '  , or g            pick up item         >  go down stairs',
-        '  i  inventory      m  event log (all that happened)   ?  help     Q  quit',
+        '  i  inventory      m  event log (all that happened)   ?  help  Q  save/quit',
         '  q  quaff potion   r  read scroll   e  eat food       S  spells & weapon',
         '  w  wield weapon   W  wear armor    d  drop item       A  auto-skip battles',
         '  Press two arrow keys together (like up + left) to move diagonally.',

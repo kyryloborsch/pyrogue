@@ -71,13 +71,24 @@ Movement            y k u        Shift + direction    run
 | `q`       | quaff a potion     | `m` | event log                       |
 | `r`       | read a scroll      | `A` | toggle auto-skip of easy battles |
 | `e`       | eat food           | `?` | help                            |
-| `w`       | wield a weapon     | `Q` | quit                            |
+| `w`       | wield a weapon     | `Q` | save & quit, or abandon the run |
 | `W`       | wear armor         | `S` | spells & weapon bonuses         |
 | `d`       | drop an item       |     |                                 |
 
 To move diagonally with the arrow keys, press two of them together, like `↑` and `←` for up-left.
 
 In menus, arrows or `hjkl` move the cursor, `Enter`/`Space`/`z` choose, and `Esc`/`x` go back. In battle, `S` skips an easy fight and `M` opens the event log.
+
+## Saving
+
+There is one saved game, and you only get one life. When you start the game with a save, you can continue it or begin a new game, which deletes the save.
+
+- `Q` lets you save and quit, or abandon the run.
+- The game also saves itself every time you reach a new depth.
+- If you press Ctrl-C or close the terminal, the game saves where you were at the start of that turn.
+- When you die, win or abandon the run, the save is deleted.
+
+The save lives in `saves/save.pickle`, in the game's folder next to `rogue.py`, and git ignores it. Set `PYROGUE_SAVE` to use a different file. A save from an older, incompatible version of the game is moved aside as `save.pickle.bad`, and a new game starts. Saves are Python pickles, so only load save files you made yourself.
 
 ## Map symbols
 
@@ -109,7 +120,8 @@ In menus, arrows or `hjkl` move the cursor, `Enter`/`Space`/`z` choose, and `Esc
 | `battle.py` | Battles and the battle screen |
 | `dialogue.py` | Conversations with the friendly characters |
 | `ui.py` | Drawing the map, menus, the event log, help and the ending screen |
-| `main.py` | Startup: terminal checks and the name prompt |
+| `save.py` | Saving, loading and deleting the saved game |
+| `main.py` | Startup: terminal checks, continuing a saved game, and the name prompt |
 
 `Game` is built from one mixin class per part of the game (`DungeonMixin`, `ActionsMixin`, `ItemsMixin`, `BattleMixin`, `TalkMixin` and `UIMixin`). Adding a monster, spell or item mostly means adding entries to its data tables (a monster also needs a sprite in `sprites.py`). A new character also needs a `talk_<kind>` method in `dialogue.py`.
 

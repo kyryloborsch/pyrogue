@@ -89,7 +89,7 @@ class ActionsMixin:
         p = self.player
         room = next((r for r in self.rooms if r.x < p.x < r.x + r.w - 1
                      and r.y < p.y < r.y + r.h - 1), None)
-        if (room is None or self.tiles[p.y][p.x] != FLOOR or id(room) in self.searched
+        if (room is None or self.tiles[p.y][p.x] != FLOOR or (room.x, room.y) in self.searched
                 or random.random() >= HIDDEN_ITEM_CHANCE):
             return False
         if random.random() < 0.3:
@@ -101,7 +101,7 @@ class ActionsMixin:
                  and not self.monster_at(x, y) and not self.npc_at(x, y)]
         if not spots:
             return False
-        self.searched.add(id(room))
+        self.searched.add((room.x, room.y))
         it.x, it.y = spots[0]
         self.items.append(it)
         self.msg('You find something hidden behind a loose stone!')

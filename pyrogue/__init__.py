@@ -8,5 +8,5 @@ on depth 10, then the Frost Wyrm on depth 20 to claim the Amulet of Yendor.
 
 Data modules: constants, world, monsters, moves, items, characters, sprites, text, player.
 The Game class (game.py) is built from one mixin per part of the game: dungeon, actions,
-inventory, battle, dialogue and ui.
+inventory, battle, dialogue and ui. save.py saves and loads games; main.py starts one.
 """

@@ -4,6 +4,7 @@ import curses
 import random
 from collections import deque
 
+from . import save
 from .actions import ActionsMixin
 from .battle import BattleMixin
 from .characters import BARD_BY
@@ -34,7 +35,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         self.known = set()
         self.potion_look = dict(zip(POTIONS, random.sample(POTION_COLORS, len(POTIONS))))
         self.scroll_look = {s: self.random_title() for s in SCROLLS}
-        self.game_over = None        # ('died', reason) | ('won',) | ('quit',)
+        self.game_over = None        # ('died', reason) | ('won',) | ('quit',) | ('saved',)
         self.visible = set()
         self.foes = []               # monsters in the current battle; foes[0] is the target
         self.battles = 0             # battles fought (lets a sleeping player notice an attack)
@@ -46,6 +47,8 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         self.weak_known = set()      # monster names whose weak spot the player has found
         self.auto_skip = False       # resolve easy battles without the battle screen
         self.pending_key = None      # key read while waiting for a second arrow key
+        self.saved_depth = 0         # the depth last autosaved
+        self.snapshot = None         # the game as it was at the start of this turn (bytes)
         self.traps = {}              # (x, y) -> Trap
         self.env = ENVIRONMENTS[0]   # the environment of the current level
 
@@ -55,6 +58,16 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         p.pack = [p.weapon, p.armor, Item('food')]
         self.new_level()
         self.msg(f'Welcome to the Dungeons of Doom, {name}! Someone is waiting to talk to you (&).')
+
+    @classmethod
+    def restore(cls, scr, state):
+        """A game picked up from a save."""
+        game = cls.__new__(cls)
+        vars(game).update(state)
+        game.scr = scr
+        game.snapshot, game.foes, game.fallen = None, [], None
+        game.msg(f'Welcome back, {game.name}! You are on depth {game.depth}.')
+        return game
 
     # ------------------------------------------------------------ helpers
     @staticmethod
@@ -336,18 +349,32 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
             self.auto_skip = not self.auto_skip
             self.msg(f'Auto-skip easy battles: {"ON" if self.auto_skip else "OFF"}.')
         elif ch == 'Q':
-            if self.confirm('Really quit? (y/n)'):
+            self.show()
+            self.draw(['s) save and quit   a) abandon this run   Esc) keep playing'])
+            k = self.scr.getch()
+            if k == ord('s'):
+                save.write(save.snapshot(self))
+                self.game_over = ('saved',)
+            elif k == ord('a') and self.confirm('Abandon this run and delete its save? (y/n)'):
                 self.game_over = ('quit',)
         return False
 
     def play(self):
         while not self.game_over:
+            new_depth = self.depth != self.saved_depth
+            self.saved_depth = self.depth
+            self.snapshot = save.snapshot(self)
+            if new_depth:
+                save.write(self.snapshot)            # autosave on reaching each new depth
             self.show()
             k = self.read_key()
             if k == curses.KEY_RESIZE:
                 continue
             if self.handle_key(k):
                 self.end_turn()
+        if self.game_over[0] == 'saved':
+            return
+        save.delete()                    # one life: the run is over, and so is its save
         self.show()
         self.wait_key()
         self.ending_screen()
