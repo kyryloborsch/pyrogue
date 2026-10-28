@@ -1,6 +1,6 @@
 # pyrogue
 
-A small terminal dungeon crawler in the spirit of *Rogue* (1980), with Pokémon-style turn-based battles and friendly characters to talk to. It's one Python file that only uses the standard library.
+A small terminal dungeon crawler in the spirit of *Rogue* (1980), with Pokémon-style turn-based battles and friendly characters to talk to. It's written in plain Python and only uses the standard library.
 
 Descend through 20 procedurally generated levels across four environments, defeat the **Bone King** on depth 10 and the **Frost Wyrm** on depth 20, and escape with the **Amulet of Yendor**.
 
@@ -18,7 +18,7 @@ cd pyrogue
 python3 rogue.py
 ```
 
-Run it directly in a real terminal window. It won't start from an IDE output pane or any other environment without an interactive TTY, because curses fails with `cbreak() returned ERR` there.
+`python3 -m pyrogue` works too. Run it directly in a real terminal window. It won't start from an IDE output pane or any other environment without an interactive TTY, because curses fails with `cbreak() returned ERR` there.
 
 ## The dungeon
 
@@ -39,15 +39,18 @@ A boss level has no stairs down until the boss falls. At half HP, each boss chan
 - **Spells.** Rare spell scrolls teach 12 spells, from Fire Bolt and Heal to Chain Lightning (hits every foe), Bewilder (confuses a foe) and Meditate (restores MP). You can know 4 spells at once. To learn a fifth, you forget one, or keep the scroll for later. `S` shows your moves and what your weapon adds to them.
 - **Physical and magic weapons.** Swords, maces and spears make STRIKE and POWER SMASH hit harder. Wands and staffs barely hurt in melee, but add their power to every attack spell. Enchanting a weapon improves whichever of these it does.
 - **Event log.** Every message, including each line of battle text, goes into a scrollable log (`m`, or `M` during a battle), stamped with the turn number and grouped by depth. In a terminal wider than 104 columns or taller than 28 rows, the latest events also stay on screen in a side or bottom panel.
-- **Friendly characters (`&`).** Walk into one to talk. Up to three can turn up on a floor. Merchants can show up again and again, but everyone else appears only once per game:
+- **Friendly characters (`&`).** Walk into one to talk. They stroll around the room they're in, but hold still while you stand next to them, and they never block a passage.
   - The **sage** gives advice on depth 1.
-  - **Merchants** buy and sell, **healers** patch you up, and **bards** sing and sell secrets.
+  - A **merchant** buys and sells on every even depth, a couple of steps from the stairs down. On a boss level, the merchant waits where you arrive instead.
+  - Everyone else is rare: at most one turns up on a floor, in a room no monsters start in, and each appears only once per game. A **healer** also waits before a boss if you haven't met one yet.
+  - **Healers** patch you up.
+  - A **bard** always turns up somewhere on depths 2–5. The bard sings and sells a secret, and that secret is always which scroll is the scroll of identify (unless you already know it).
   - **Bram the Smith** improves your weapon and armor once each, for gold.
   - **Mage Oriel** teaches spells and restores your mana.
-  - **Madame Zara** reveals a floor's map and traps, and tells your fortune.
-  - **Lucky Lou** plays dice with you, with ties going to the house.
   - A hungry **hermit** trades a scroll for food.
   - In the Catacombs, a **restless spirit** whispers the weak spots of nearby monsters, then fades away.
+- **Getting away.** A monster hunting you loses your trail once you've been out of its sight and more than 10 steps away for a few turns. It then roams the level until it spots you again. An alarm or a scroll of aggravate monsters keeps them on your trail much longer.
+- **Searching (`s`).** Searching finds hidden traps nearby. In a room it may also turn up a hidden item or some gold, at most once per room.
 - **Classic roguelike systems.** Unidentified potions and scrolls, hidden traps, hunger, weapons and armor you can enchant, and a tombstone when you die.
 
 ## Controls
@@ -58,7 +61,7 @@ Press `?` in the game for the full list.
 Movement            y k u        Shift + direction    run
 (or arrows/numpad)   \|/         . or 5               rest one turn
                     h-@-l        z                    rest until HP & MP full
-                     /|\         s                    search for traps
+                     /|\         s                    search for traps & items
                     b j n        >                    go down stairs
 ```
 
@@ -72,6 +75,8 @@ Movement            y k u        Shift + direction    run
 | `W`       | wear armor         | `S` | spells & weapon bonuses         |
 | `d`       | drop an item       |     |                                 |
 
+To move diagonally with the arrow keys, press two of them together, like `↑` and `←` for up-left.
+
 In menus, arrows or `hjkl` move the cursor, `Enter`/`Space`/`z` choose, and `Esc`/`x` go back. In battle, `S` skips an easy fight and `M` opens the event log.
 
 ## Map symbols
@@ -81,6 +86,32 @@ In menus, arrows or `hjkl` move the cursor, `Enter`/`Space`/`z` choose, and `Esc
 ^ trap     : food     * gold     " Amulet   + door     # corridor
 % cave wall           ~ lava / icy water   0 pillar
 ```
+
+## Project layout
+
+`rogue.py` just starts the game. The code lives in the `pyrogue` package:
+
+| Module | What's in it |
+|--------|--------------|
+| `constants.py` | Map size, map tiles and keys |
+| `world.py` | The four environments, the bosses and the traps |
+| `monsters.py` | Monster stats, body parts and weak spots |
+| `moves.py` | Battle moves, spells, type effectiveness and statuses |
+| `items.py` | Weapons, armor, potions, scrolls and food |
+| `characters.py` | The friendly characters, where they turn up, songs and lore |
+| `sprites.py` | ASCII art for the battle screen |
+| `text.py` | Colors and the highlighting of important words |
+| `player.py` | The player character |
+| `game.py` | The `Game` class: turns, monster movement and the keyboard |
+| `dungeon.py` | Level generation and field of view |
+| `actions.py` | Walking, running, resting, traps and stairs |
+| `inventory.py` | Using, wielding and naming items, and the spellbook |
+| `battle.py` | Battles and the battle screen |
+| `dialogue.py` | Conversations with the friendly characters |
+| `ui.py` | Drawing the map, menus, the event log, help and the ending screen |
+| `main.py` | Startup: terminal checks and the name prompt |
+
+`Game` is built from one mixin class per part of the game (`DungeonMixin`, `ActionsMixin`, `ItemsMixin`, `BattleMixin`, `TalkMixin` and `UIMixin`). Adding a monster, spell or item mostly means adding entries to its data tables (a monster also needs a sprite in `sprites.py`). A new character also needs a `talk_<kind>` method in `dialogue.py`.
 
 ## License
 
