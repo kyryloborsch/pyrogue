@@ -147,8 +147,9 @@ class BattleMixin:
             self.say(f"{self.name} is paralyzed! {self.name} can't move!")
         elif p.confused and random.random() < 1 / 3:
             self.say(f'{self.name} is confused! {self.name} stumbled and got hurt!')
-            self.hurt(random.randint(1, 4) + p.level // 2, 'confusion')
-            self.animate_hp()
+            dmg = random.randint(1, 4) + p.level // 2
+            self.hurt(dmg, 'confusion')
+            self.damage_fx('player', dmg, 'magenta')
         else:
             return False
         return True
@@ -213,9 +214,10 @@ class BattleMixin:
                 del m.status['confuse']
                 say(f'{who} snapped out of its confusion!')
             elif random.random() < 1 / 3:
-                m.hp = max(0, m.hp - max(1, random.randint(*m.dmg) // 2))
-                if not quiet:
-                    self.animate_hp()
+                dmg = max(1, random.randint(*m.dmg) // 2)
+                m.hp = max(0, m.hp - dmg)
+                if not quiet and m is self.foe:
+                    self.damage_fx('enemy', dmg, 'magenta')
                 say(f'{who} is confused! It hurt itself in its confusion!')
                 return True
         return False
@@ -227,7 +229,9 @@ class BattleMixin:
                 continue
             dmg = max(2, min(m.max_hp // (12 if status == 'burn' else 10), 3 + self.depth // 2))
             m.hp = max(0, m.hp - dmg)
-            if not quiet:
+            if not quiet and m is self.foe:
+                self.damage_fx('enemy', dmg, 'red' if status == 'burn' else 'green')
+            elif not quiet:
                 self.animate_hp()
             say(f'The {self.called(m)} was hurt by {what}!')
             m.status[status] -= 1
@@ -255,7 +259,10 @@ class BattleMixin:
 
     def battle_world_turn(self):
         """A battle round is a dungeon turn too: hunger ticks and other monsters close in."""
+        hp = self.player.hp
         self.tick_player()
+        if self.player.hp < hp:                            # burns, or starving
+            self.damage_fx('player', hp - self.player.hp)
         self.turn += 1
         self.monsters_act()
 
@@ -330,8 +337,8 @@ class BattleMixin:
             p.hp = min(p.max_hp, p.hp + max(1, int(dmg * info['drain'])))
         if not quiet:
             if m is self.foe:
-                self.flash('enemy')
-                self.animate_hp()
+                self.damage_fx('enemy', dmg, 'yellow' if crit or weak else 'red',
+                               'CRIT!' if crit else 'WEAK SPOT!' if weak else '')
             notes = ['A critical hit!'] if crit else []
             if weak and m.name in self.weak_known:
                 notes.append('A hit to its weak spot!')
@@ -391,8 +398,7 @@ class BattleMixin:
             dmg = max(1, dmg // 2)
         p.hp = max(0, p.hp - dmg)
         if not quiet:
-            self.flash('player')
-            self.animate_hp()
+            self.damage_fx('player', dmg)
         if guarding:
             self.say('Your guard softened the blow!')
         if special and 'poison' in m.flags and p.str > 3:
@@ -410,7 +416,10 @@ class BattleMixin:
                 p.frozen = 1
                 say('You were frozen solid!')
             else:
-                p.hp = max(0, p.hp - random.randint(2, 5))
+                chill = random.randint(2, 5)
+                p.hp = max(0, p.hp - chill)
+                if not quiet:
+                    self.damage_fx('player', chill, 'cyan')
                 say('You were chilled to the bone!')
         if special and 'paralyze' in m.flags and not p.paralyzed:
             p.paralyzed = random.randint(4, 6)
@@ -616,12 +625,26 @@ class BattleMixin:
         self.draw_battle()
         curses.napms(150)
 
-    def flash(self, who):
-        for _ in range(2):
-            self.draw_battle(hide=who)
-            curses.napms(70)
+    # how a hit looks: frames of (sideways jolt, sprite color, spark drawn over the sprite)
+    SHAKE = [(2, 'white', '*'), (-2, None, '+'), (1, 'white', '*'), (-1, None, ''), (0, None, '')]
+    # where the damage number floats up from, beside each sprite: (row, column)
+    POPUP_AT = {'enemy': (7, 40), 'player': (12, 24)}
+
+    def damage_fx(self, who, dmg, color='red', note=''):
+        """Show who ('enemy' or 'player') taking dmg: the sprite jolts and flashes, then a
+        damage number floats up beside it while the HP bars catch up."""
+        for dx, tint, spark in self.SHAKE:
+            self.fx = {'who': who, 'dx': dx, 'tint': tint or color, 'spark': spark}
             self.draw_battle()
-            curses.napms(70)
+            curses.napms(45)
+        self.fx = {'who': who, 'text': f'-{dmg}' + (f' {note}' if note else ''), 'color': color,
+                   'rise': 0}
+        self.animate_hp()
+        while self.fx['rise'] < 8:          # let the number finish floating up
+            self.draw_battle()
+            curses.napms(30)
+        self.fx = None
+        self.draw_battle()
 
     def animate_hp(self):
         if not self.foe:
@@ -653,8 +676,10 @@ class BattleMixin:
         for t in msgs:
             self.say(t, log=False)
 
-    def draw_battle(self, text=None, more=False, hide=None, extra=None):
+    def draw_battle(self, text=None, more=False, extra=None):
         m, p = self.foe or self.fallen, self.player
+        fx = self.fx or {}
+        hit = fx.get('who') if 'dx' in fx else None       # whose sprite is jolting right now
         self.scr.erase()
         # enemy panel
         self.box(1, 2, 4, 36)
@@ -673,14 +698,10 @@ class BattleMixin:
         if len(self.foes) > 4:
             self.put(8, 4, f'+ {len(self.foes) - 4} more...')
         art = SPRITES[m.name]
-        if hide != 'enemy':
-            for i, line in enumerate(art):
-                self.put(8 - len(art) + i, 48, line, COLORS[m.color] | curses.A_BOLD)
+        self.draw_sprite(art, 8 - len(art), 48, m.color, fx if hit == 'enemy' else None)
         self.put(8, 46, '`~~~~~~~~~~~~~~~~~~~~~~~~~~\'', COLORS['green'])
         # player panel
-        if hide != 'player':
-            for i, line in enumerate(SPRITES['player']):
-                self.put(9 + i, 6, line, COLORS['yellow'] | curses.A_BOLD)
+        self.draw_sprite(SPRITES['player'], 9, 6, 'yellow', fx if hit == 'player' else None)
         self.put(15, 2, '`~~~~~~~~~~~~~~~~~~~~~~~\'', COLORS['green'])
         self.box(9, 42, 7, 36)
         self.put(10, 44, self.name.upper()[:18], curses.A_BOLD)
@@ -711,8 +732,25 @@ class BattleMixin:
             self.put(21, 76, '▼', curses.A_BOLD | curses.A_BLINK)
         if extra:
             extra()
+        if 'text' in fx:                                  # the damage number, floating up
+            y, x = self.POPUP_AT[fx['who']]
+            self.put(y - fx['rise'] // 3, x, fx['text'],
+                     COLORS[fx['color']] | curses.A_BOLD | (curses.A_DIM if fx['rise'] > 5 else 0))
+            fx['rise'] += 1
         self.draw_log_panel()
         self.scr.refresh()
+
+    def draw_sprite(self, art, top, left, color, fx=None):
+        """A battle sprite. fx is a frame of a hit: jolted sideways, tinted, with a spark."""
+        dx, tint = (fx['dx'], fx['tint']) if fx else (0, color)
+        for i, line in enumerate(art):
+            self.put(top + i, left + dx, line, COLORS[tint] | curses.A_BOLD)
+        if fx and fx['spark']:
+            width = max(len(line) for line in art)
+            mid = top + len(art) // 2
+            for sy, sx in ((-1, -2), (0, 0), (1, 2), (-1, 2), (1, -2)):
+                self.put(mid + sy, left + dx + width // 2 + sx, fx['spark'],
+                         COLORS['white'] | curses.A_BOLD)
 
     def hp_bar(self, y, x, hp, max_hp, width):
         frac = max(0, hp) / max_hp

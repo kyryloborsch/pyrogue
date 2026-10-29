@@ -28,7 +28,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         self.scr = scr
         # the run's seed: the same seed makes the same dungeon (and, played the same way,
         # the same run)
-        self.seed = str(random.randrange(10 ** 6) if seed is None else seed)
+        self.seed = self.new_seed() if seed is None else str(seed)
         random.seed(self.seed)
         self.name = name
         self.player = Player()
@@ -46,6 +46,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         self.asleep = False          # knocked out by sleeping gas
         self.fallen = None           # last foe beaten, still shown while rewards are read out
         self.shown_hp = [0, 0]       # HP values the battle bars are showing (for animation)
+        self.fx = None               # the hit being animated in battle (see damage_fx)
         self.npcs_met = set()        # kinds that have appeared; only merchants come back
         self.bard_depth = random.randint(2, BARD_BY)   # the bard turns up by this depth
         self.weak_known = set()      # monster names whose weak spot the player has found
@@ -69,15 +70,22 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
     def restore(cls, scr, state):
         """A game picked up from a save."""
         game = cls.__new__(cls)
-        game.seed = None             # saves from before seeds existed don't have one
-        game.legend = set()          # nor a legend
+        game.legend = set()          # saves from before the legend existed don't have one
         vars(game).update(state)
+        if 'seed' not in state:      # nor a seed: the levels still to come get a new one
+            game.seed = cls.new_seed()
+            game.record(f'This run\'s seed is {game.seed}.')
         game.scr = scr
-        game.snapshot, game.foes, game.fallen = None, [], None
+        game.snapshot, game.foes, game.fallen, game.fx = None, [], None, None
         game.msg(f'Welcome back, {game.name}! You are on depth {game.depth}.')
         return game
 
     # ------------------------------------------------------------ helpers
+    @staticmethod
+    def new_seed():
+        """A seed for a run started without one: a random six-digit number."""
+        return str(random.randrange(10 ** 5, 10 ** 6))
+
     @staticmethod
     def random_title():
         words = [''.join(random.sample(SYLLABLES, random.randint(1, 3)))

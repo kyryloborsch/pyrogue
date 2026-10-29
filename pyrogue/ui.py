@@ -181,33 +181,13 @@ class UIMixin:
         return keys & LEGEND.keys()
 
     def note_symbols(self):
-        """Add symbols seen for the first time to the legend, and say what they are, unless the
-        legend is already on screen beside the map."""
-        new = self.symbols_on_map() - self.legend
-        if not new:
-            return
-        self.legend |= new
-        text = 'New on the map: ' + ', '.join(self.legend_entries(new)) + '.'
-        if self.scr.getmaxyx()[1] >= 104:
-            self.record(text)
-        else:
-            self.msg(text)
+        """Add symbols seen for the first time to the legend on the help screen."""
+        self.legend |= self.symbols_on_map()
 
-    def legend_entries(self, keys=None):
-        """The legend so far (or just keys), as 'symbol name' strings ('- | wall' for walls)."""
-        keys = self.legend if keys is None else keys
+    def legend_entries(self):
+        """The legend so far, as 'symbol name' strings ('- | wall' for the walls)."""
         return [f'{" ".join(k) if k == "-|" else k[0]} {v}' for k, v in LEGEND.items()
-                if k in keys]
-
-    def draw_legend(self, top, left, width):
-        """The legend in columns, with a header. Returns how many rows it took."""
-        entries = self.legend_entries()
-        cols = max(1, width // 13)
-        rows = (len(entries) + cols - 1) // cols
-        self.put(top, left, ' MAP LEGEND '.center(width, '─'), COLORS['cyan'])
-        for i, entry in enumerate(entries):
-            self.put(top + 1 + i % rows, left + (i // rows) * 13, entry[:width])
-        return rows + 1
+                if k in self.legend]
 
     def help_lines(self):
         """The help screen, with the symbols found so far."""
@@ -224,13 +204,10 @@ class UIMixin:
         return lines
 
     def draw_log_panel(self):
-        """In a terminal bigger than 80x24, show the latest events beside or below the game.
-        A wide one shows the map legend above them."""
+        """In a terminal bigger than 80x24, show the latest events beside or below the game."""
         rows, cols = self.scr.getmaxyx()
         if cols >= 104:
             top, left, height, width = 0, 81, rows - 1, cols - 82
-            used = self.draw_legend(top, left, width) + 1
-            top, height = top + used, height - used
         elif rows >= 28:
             top, left, height, width = 25, 0, rows - 26, min(cols - 1, 80)
         else:

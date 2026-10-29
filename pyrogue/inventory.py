@@ -2,6 +2,7 @@
 
 import curses
 import random
+import textwrap
 
 from .constants import (
     ARROWS, CANCEL_KEYS, CONFIRM_KEYS, ITEM_LETTERS, MAP_H, MAP_W, MAX_PACK, ROCK, STAIRS
@@ -181,12 +182,21 @@ class ItemsMixin:
 
     def inventory(self, in_battle=False):
         """Everything you carry in one place, grouped by kind, with your spells on top. Pick
-        a line to use, cast or drop it. Returns True once a turn was spent."""
+        a line to use, cast or drop it. In battle, using something closes the BAG and returns
+        True. On the map the inventory stays open, and each use passes its turn right away,
+        until you close it or something needs your attention; it returns False, as those
+        turns have already gone by."""
         def pick(choice, view):
             kind, obj = choice
+            in_sight = self.visible_monsters()
             done, note = (self.cast_from_pack(obj) if kind == 'spell'
                           else self.use_from_pack(obj, view, in_battle))
-            return done, done, note
+            if in_battle:
+                return done, done, note
+            if not done:                              # say why here, not after closing
+                news, self.msgs = '  '.join(self.msgs), []
+                return False, None, note or news or None
+            return self.pass_turn_in_pack(in_sight)
         footer = ' up/down: move   letter/Enter: use' + ('' if in_battle else ', cast or drop')
         used = self.browse(lambda: self.inventory_rows(in_battle), pick,
                            ' BAG' if in_battle else ' INVENTORY', footer + '   Esc/i: close')
@@ -194,7 +204,20 @@ class ItemsMixin:
             if not self.inventory_rows(in_battle):
                 self.msg('You have nothing to use.' if in_battle else 'You are empty-handed.')
             return False
-        return True
+        return in_battle
+
+    def pass_turn_in_pack(self, in_sight):
+        """End the turn an item or spell took, with the inventory still open. It closes if
+        the game ends, a battle broke out, a new monster came into view or the pack is empty,
+        leaving the news for the map; otherwise the news shows at the bottom of the inventory.
+        Returns what pick() returns to browse()."""
+        battles = self.battles
+        self.end_turn()
+        if (self.game_over or self.battles != battles or not self.inventory_rows(False)
+                or any(m not in in_sight for m in self.visible_monsters())):
+            return True, False, None
+        news, self.msgs = '  '.join(self.msgs), []
+        return False, None, news
 
     def pick_item(self, title, pred, note):
         """The inventory screen, showing only the items that suit pred, to pick one of them.
@@ -220,6 +243,12 @@ class ItemsMixin:
             elif sel >= top + height:
                 top = sel - height + 1
             view = (rows, sel, top, height, title)
+            if shown and len(shown) > 78:             # page through a long message
+                lines = textwrap.wrap(shown, 69)
+                for line in lines[:-1]:
+                    self.draw_inventory(*view, footer, f'{line} --More--')
+                    self.wait_key()
+                shown = lines[-1]
             self.draw_inventory(*view, footer, shown or note or self.note(*rows[sel][1]))
             shown = None
             if jump:

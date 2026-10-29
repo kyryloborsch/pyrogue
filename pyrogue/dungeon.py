@@ -57,9 +57,6 @@ class DungeonMixin:
         """Go down to the next depth. Each depth is built from its own dice, seeded by the run's
         seed, so a seed always makes the same levels however the run before them went."""
         self.depth += 1
-        if self.seed is None:                         # a run saved before seeds existed
-            self.build_level()
-            return
         dice = random.getstate()
         random.seed(f'{self.seed}:{self.depth}')
         try:
