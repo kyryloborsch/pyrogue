@@ -217,6 +217,14 @@ class UIMixin:
             lines = lines[2:]
         self.draw(lines)
 
+    def show_pending(self):
+        """Page through the messages still waiting to be read, on the map, a key per page."""
+        lines = textwrap.wrap('  '.join(self.msgs), MAP_W - 10)
+        self.msgs = []
+        for i in range(0, len(lines), 2):
+            self.draw(lines[i:i + 2], more=True)
+            self.wait_key()
+
     def wait_key(self):
         while self.scr.getch() == curses.KEY_RESIZE:
             pass

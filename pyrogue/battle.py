@@ -43,6 +43,8 @@ class BattleMixin:
                 self.end_battle(None)
                 return
             intro = None              # someone joined and the fight got serious
+        if self.msgs:
+            self.show_pending()       # news from before this fight (like the last one's win)
         self.shown_hp = [self.foe.hp, p.hp]
         self.battle_transition()
         if intro:

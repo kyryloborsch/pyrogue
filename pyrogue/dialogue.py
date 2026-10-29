@@ -9,7 +9,7 @@ from .constants import FINAL_DEPTH, MAX_PACK
 from .items import Item, POTIONS, SCROLLS
 from .monsters import WEAK_SPOTS
 from .moves import MAX_SPELLS, MOVES, SPELLS
-from .text import COLORS, an
+from .text import COLORS
 
 
 class TalkMixin:
@@ -20,7 +20,10 @@ class TalkMixin:
         npc.talked += 1
         self.compute_fov()
 
-    def npc_say(self, npc, text):
+    def npc_say(self, npc, text, spoken=True):
+        """Show a line in the dialog box. It goes into the event log too, under the speaker's
+        name unless it is narration (spoken=False)."""
+        self.record(f'{npc.name}: {text}' if spoken else text)
         lines = textwrap.wrap(text, 72) or ['']
         for i in range(0, len(lines), 2):
             self.draw_dialog(npc, lines[i:i + 2], more=True)
@@ -58,12 +61,12 @@ class TalkMixin:
             self.known.add(it.sub)
         name = self.item_name(it)
         if self.add_to_pack(it):
-            self.npc_say(npc, f'{self.name} received {name}!')
+            self.npc_say(npc, f'{self.name} received {name}!', spoken=False)
         else:
             p = self.player
             it.x, it.y, it.seen = p.x, p.y, True
             self.items.append(it)
-            self.npc_say(npc, f'Your pack is full, so {name} was put on the floor.')
+            self.npc_say(npc, f'Your pack is full, so {name} was put on the floor.', spoken=False)
 
     def talk_sage(self, npc):
         say = lambda t: self.npc_say(npc, t)
@@ -374,6 +377,5 @@ class TalkMixin:
         for name in secrets:
             self.weak_known.add(name)
             say(f'The {name.upper()}... strike at its {WEAK_SPOTS[name]}.')
-            self.record(f'The spirit whispered: {an(name)} is weak in its {WEAK_SPOTS[name]}.')
         say('Avenge me... The spirit fades away into the cold stone.')
         self.npcs.remove(npc)
