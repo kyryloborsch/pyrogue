@@ -55,6 +55,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         self.snapshot = None         # the game as it was at the start of this turn (bytes)
         self.traps = {}              # (x, y) -> Trap
         self.env = ENVIRONMENTS[0]   # the environment of the current level
+        self.legend = set()          # map symbols seen so far (see LEGEND)
 
         p = self.player
         p.weapon = make_weapon('mace', 1)
@@ -69,6 +70,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         """A game picked up from a save."""
         game = cls.__new__(cls)
         game.seed = None             # saves from before seeds existed don't have one
+        game.legend = set()          # nor a legend
         vars(game).update(state)
         game.scr = scr
         game.snapshot, game.foes, game.fallen = None, [], None
@@ -342,7 +344,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         if ch == 'z':
             self.rest()
         elif ch == '?':
-            self.full_screen(self.HELP)
+            self.full_screen(self.help_lines())
         elif ch in ('m', '\x10'):
             self.show_log()
         elif ch == 'A':

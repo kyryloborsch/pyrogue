@@ -102,6 +102,8 @@ The save lives in `saves/save.pickle`, in the game's folder next to `rogue.py`, 
 
 ## Map symbols
 
+The legend fills in as you play. The first time a symbol shows up on your map, a message says what it is (in a terminal 104 or more columns wide, a MAP LEGEND panel above the recent events lists every symbol found so far instead). The help screen (`?`) lists the symbols you've found too. All of them:
+
 ```
 @ you      & friend   > stairs   ! potion   ? scroll   ) weapon   ] armor
 ^ trap     : food     * gold     " Amulet   + door     # corridor
