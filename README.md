@@ -18,7 +18,12 @@ cd pyrogue
 python3 rogue.py
 ```
 
-`python3 -m pyrogue` works too. Run it directly in a real terminal window. It won't start from an IDE output pane or any other environment without an interactive TTY, because curses fails with `cbreak() returned ERR` there.
+`python3 -m pyrogue` works too. Options:
+
+- `--seed WORD` starts a new game from a seed (any word or number). The same seed always builds the same 20 levels, with the same monsters, items and unidentified potion colors, however you play the levels before them. Without one, the game picks a random number. Either way, you can find the seed in the event log and the hall of fame.
+- `--scores` prints the hall of fame and quits.
+
+ Run it directly in a real terminal window. It won't start from an IDE output pane or any other environment without an interactive TTY, because curses fails with `cbreak() returned ERR` there.
 
 ## The dungeon
 
@@ -89,6 +94,10 @@ There is one saved game, and you only get one life. When you start the game with
 - If you press Ctrl-C or close the terminal, the game saves where you were at the start of that turn.
 - When you die, win or abandon the run, the save is deleted.
 
+## Hall of fame
+
+Every run that ends (by dying, winning or giving up) goes into `saves/scores.json`, next to the save. A run scores its gold plus 100 points for each depth reached, and 5000 more for escaping with the Amulet. The best 9 appear after the ending screen, with their dates, turns and seeds, so you can replay a good dungeon with `--seed`. The file keeps the best 100 runs.
+
 The save lives in `saves/save.pickle`, in the game's folder next to `rogue.py`, and git ignores it. Set `PYROGUE_SAVE` to use a different file. A save from an older, incompatible version of the game is moved aside as `save.pickle.bad`, and a new game starts. Saves are Python pickles, so only load save files you made yourself.
 
 ## Map symbols
@@ -122,7 +131,8 @@ The save lives in `saves/save.pickle`, in the game's folder next to `rogue.py`, 
 | `dialogue.py` | Conversations with the friendly characters |
 | `ui.py` | Drawing the map, menus, the event log, help and the ending screen |
 | `save.py` | Saving, loading and deleting the saved game |
-| `main.py` | Startup: terminal checks, continuing a saved game, and the name prompt |
+| `scores.py` | The hall of fame |
+| `main.py` | Startup: command-line options, terminal checks, continuing a saved game, and the name prompt |
 
 `Game` is built from one mixin class per part of the game (`DungeonMixin`, `ActionsMixin`, `ItemsMixin`, `BattleMixin`, `TalkMixin` and `UIMixin`). Adding a monster, spell or item mostly means adding entries to its data tables (a monster also needs a sprite in `sprites.py`). A new character also needs a `talk_<kind>` method in `dialogue.py`.
 

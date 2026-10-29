@@ -54,7 +54,20 @@ class DungeonMixin:
     """Building levels: rooms, crypts and caves, what lives on them, and what the player can see."""
 
     def new_level(self):
+        """Go down to the next depth. Each depth is built from its own dice, seeded by the run's
+        seed, so a seed always makes the same levels however the run before them went."""
         self.depth += 1
+        if self.seed is None:                         # a run saved before seeds existed
+            self.build_level()
+            return
+        dice = random.getstate()
+        random.seed(f'{self.seed}:{self.depth}')
+        try:
+            self.build_level()
+        finally:
+            random.setstate(dice)
+
+    def build_level(self):
         env = self.env = environment(self.depth)
         while True:
             self.tiles = [[ROCK] * MAP_W for _ in range(MAP_H)]

@@ -4,7 +4,9 @@ from .moves import SPELLS
 
 
 def xp_needed(level):
-    return 10 * 2 ** (level - 1)
+    """Total EXP needed to pass a level. It grows with the cube of the level, in step with
+    the EXP monsters give deeper down, so levels keep coming all the way to depth 20."""
+    return 4 * (level - 1) ** 3 + 10 * level
 
 
 class Player:

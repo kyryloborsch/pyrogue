@@ -4,7 +4,7 @@ import curses
 import random
 from collections import deque
 
-from . import save
+from . import save, scores
 from .actions import ActionsMixin
 from .battle import BattleMixin
 from .characters import BARD_BY
@@ -24,8 +24,12 @@ from .world import ENVIRONMENTS
 class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMixin):
     """One game, from depth 1 until the player wins, dies or quits."""
 
-    def __init__(self, scr, name):
+    def __init__(self, scr, name, seed=None):
         self.scr = scr
+        # the run's seed: the same seed makes the same dungeon (and, played the same way,
+        # the same run)
+        self.seed = str(random.randrange(10 ** 6) if seed is None else seed)
+        random.seed(self.seed)
         self.name = name
         self.player = Player()
         self.depth = 0
@@ -58,11 +62,13 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         p.pack = [p.weapon, p.armor, Item('food')]
         self.new_level()
         self.msg(f'Welcome to the Dungeons of Doom, {name}! Someone is waiting to talk to you (&).')
+        self.record(f'This run\'s seed is {self.seed}.')
 
     @classmethod
     def restore(cls, scr, state):
         """A game picked up from a save."""
         game = cls.__new__(cls)
+        game.seed = None             # saves from before seeds existed don't have one
         vars(game).update(state)
         game.scr = scr
         game.snapshot, game.foes, game.fallen = None, [], None
@@ -369,6 +375,8 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         if self.game_over[0] == 'saved':
             return
         save.delete()                    # one life: the run is over, and so is its save
+        entry = scores.add(self)
         self.show()
         self.wait_key()
         self.ending_screen()
+        self.full_screen(scores.table(scores.load(), mark=entry and entry['rank']))

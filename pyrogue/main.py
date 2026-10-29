@@ -1,12 +1,13 @@
 """Starting the game: the terminal checks, the saved game and the name prompt."""
 
+import argparse
 import curses
 import locale
 import os
 import random
 import signal
 
-from . import save
+from . import save, scores
 from .game import Game
 from .text import init_colors
 
@@ -46,8 +47,9 @@ def title_screen(scr, lines):
     return scr.getch()
 
 
-def load_or_new(scr):
-    """Offer to continue the saved game. Returns a Game, or None to leave."""
+def load_or_new(scr, seed=None):
+    """Offer to continue the saved game. Returns a Game, or None to leave. A new game uses
+    seed, if one was given."""
     if save.exists():
         try:
             state, dice = save.read()
@@ -58,9 +60,11 @@ def load_or_new(scr):
                                'Press any key.'])
         else:
             p = state['player']
+            note = [] if seed is None else [f'The seed {seed} is only used for a new game.', '']
             while True:
                 k = title_screen(scr, [
                     f'Saved game: {state["name"]}, level {p.level}, on depth {state["depth"]}.', '',
+                    *note,
                     '  c) continue', '  n) new game (the saved game is lost)', '  q) leave'])
                 if k in (ord('c'), ord('C'), 10, 13, ord(' ')):
                     random.setstate(dice)
@@ -72,17 +76,17 @@ def load_or_new(scr):
                     if k in (ord('y'), ord('Y')):
                         save.delete()
                         break
-    return Game(scr, ask_name(scr))
+    return Game(scr, ask_name(scr), seed)
 
 
-def main(scr):
+def main(scr, seed=None):
     lines, cols = scr.getmaxyx()
     if lines < 24 or cols < 80:
         return f'Your terminal is {cols}x{lines}; please make it at least 80x24.'
     curses.curs_set(0)
     scr.keypad(True)
     init_colors()
-    game = load_or_new(scr)
+    game = load_or_new(scr, seed)
     if game is None:
         return None
     try:
@@ -99,14 +103,26 @@ def main(scr):
     return None
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(prog='rogue.py', description=TITLE)
+    parser.add_argument('--seed', help='start a new game from this seed (any word or number); '
+                        'the same seed makes the same dungeon')
+    parser.add_argument('--scores', action='store_true', help='show the hall of fame and quit')
+    return parser.parse_args()
+
+
 def run():
+    args = parse_args()
+    if args.scores:
+        print('\n'.join(scores.table(scores.load())))
+        return
     locale.setlocale(locale.LC_ALL, '')
     os.environ.setdefault('ESCDELAY', '25')
     for name in ('SIGHUP', 'SIGTERM'):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), on_hangup)
     try:
-        message = curses.wrapper(main)
+        message = curses.wrapper(main, args.seed)
     except (KeyboardInterrupt, Hangup):
         message = None
     if message:
