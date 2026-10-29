@@ -24,6 +24,7 @@ MOVES = {
     'DRAIN LIFE':  {'type': 'dark',    'acc': 95,  'mp': 5, 'dice': 2, 'drain': 0.5},
 }
 MAX_SPELLS = 4                   # spells known at once, on top of STRIKE and POWER SMASH
+FIELD_EFFECTS = ('heal', 'mana', 'barrier')   # spells with these work outside battle too
 # Spells are only learned from rare spell scrolls: (first depth the scroll turns up, price)
 SPELLS = {
     'FIRE BOLT': (1, 120), 'FROST SHARD': (2, 120), 'VENOM': (2, 100), 'BEWILDER': (3, 130),
@@ -47,8 +48,13 @@ EFFECTIVENESS = {
 }
 
 
+def field_spell(name):
+    """Can this spell be cast while exploring, not just in battle?"""
+    return any(key in MOVES[name] for key in FIELD_EFFECTS)
+
+
 def move_notes(info):
-    """Short descriptions of what a move does, for the battle and spellbook screens."""
+    """Short descriptions of what a move does, for the battle and inventory screens."""
     notes = []
     if info.get('mult', 1) > 1:
         notes.append(f'weapon hit x{info["mult"]}')

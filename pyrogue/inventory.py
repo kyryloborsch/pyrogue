@@ -1,18 +1,20 @@
-"""Items in the pack: naming, prices, using them, and the spellbook."""
+"""Items in the pack: naming, prices, the inventory screen and using things."""
 
 import curses
 import random
 
-from .constants import MAP_H, MAP_W, MAX_PACK, ROCK, STAIRS
-from .items import POTION_PRICES, SCROLL_PRICES, STACKABLE
+from .constants import (
+    ARROWS, CANCEL_KEYS, CONFIRM_KEYS, ITEM_LETTERS, MAP_H, MAP_W, MAX_PACK, ROCK, STAIRS
+)
+from .items import CATEGORIES, ITEM_NOTES, Item, POTION_PRICES, SCROLL_PRICES, STACKABLE
 from .monsters import NOISE_MEMORY
-from .moves import MAX_SPELLS, MOVES, SPELLS, move_notes
+from .moves import MAX_SPELLS, MOVES, SPELLS, field_spell, move_notes
 from .player import xp_needed
 from .text import COLORS, an
 
 
 class ItemsMixin:
-    """Items in the pack: naming, prices, using them, and the spellbook."""
+    """Items in the pack: naming, prices, the inventory screen and using things."""
 
     def item_name(self, it, reveal=False):
         n = it.count
@@ -75,12 +77,11 @@ class ItemsMixin:
         pack.append(it)
         return it
 
-    def pickup(self, auto):
+    def pickup(self):
+        """Pick up whatever is underfoot: done for you whenever you step onto something."""
         p = self.player
         it = self.item_at(p.x, p.y)
         if not it:
-            if not auto:
-                self.msg('There is nothing here to pick up.')
             return False
         if it.kind == 'gold':
             p.gold += it.count
@@ -94,10 +95,10 @@ class ItemsMixin:
         name = self.item_name(it)
         stacked = self.add_to_pack(it)
         if not stacked:
-            self.msg(f'Your pack is too full to pick up {name}.')
-            return not auto
+            self.msg(f'Your pack is full, so you leave {name} where it lies.')
+            return False
         self.items.remove(it)
-        letter = chr(ord('a') + p.pack.index(stacked))
+        letter = self.letter(stacked)
         self.msg(f'You now have {self.item_name(stacked)} ({letter}).')
         return True
 
@@ -106,29 +107,197 @@ class ItemsMixin:
         if it.count <= 0:
             self.player.pack.remove(it)
 
-    # --------------------------------------------------------------- items
-    def choose(self, verb, pred):
-        opts = [(chr(ord('a') + i), it) for i, it in enumerate(self.player.pack) if pred(it)]
-        if not opts:
-            self.msg(f'You have nothing to {verb}.')
-            return None
-        self.show()
-        k = self.menu(f'{verb.capitalize()} what? (Esc to cancel)',
-                      [f'{l}) {self.describe(it)}' for l, it in opts])
-        ch = chr(k) if 0 < k < 256 else ''
-        return next((it for l, it in opts if l == ch), None)
+    # ----------------------------------------------------------- inventory
+    def pack_order(self):
+        """The pack as the inventory shows it: grouped by kind, then in the order picked up."""
+        kinds = list(CATEGORIES)
+        return sorted(self.player.pack, key=lambda it: kinds.index(it.kind))
 
-    def quaff(self):
-        it = self.choose('quaff', lambda i: i.kind == 'potion')
-        return self.drink(it) if it else False
+    def letter(self, it):
+        """The letter an item goes by in the inventory; press it there to pick the item."""
+        return ITEM_LETTERS[self.pack_order().index(it)]
 
-    def read(self):
-        it = self.choose('read', lambda i: i.kind == 'scroll')
-        return self.read_scroll(it) if it else False
+    def inventory_rows(self, in_battle, only=None, tag=None):
+        """The inventory's lines: (text, what picking it does, color). Headings pick nothing.
+        With only, just the items that suit it (and no spells); tag(item) adds a note on the
+        right, like a price."""
+        p = self.player
+        rows = []
+        if not in_battle and not only and p.spells:
+            rows.append((f'SPELLS   MP {p.mp}/{p.max_mp}', None, 'blue'))
+            for name in p.spells:
+                info = MOVES[name]
+                cost = f'{info["mp"]} MP' if info['mp'] else 'free'
+                where = cost if field_spell(name) else 'battle only'
+                rows.append((f'   {name:<17} {where}', ('spell', name),
+                             None if field_spell(name) else 'dim'))
+        for kind, heading in CATEGORIES.items():
+            items = [it for it in self.pack_order() if it.kind == kind and (not only or only(it))]
+            if in_battle and kind not in ('potion', 'scroll', 'food'):
+                continue
+            if items:
+                rows.append((heading, None, 'yellow'))
+                for it in items:
+                    text = f'{self.letter(it)}) {self.describe(it)}'
+                    if tag:
+                        text = f'{text[:56]:<57}{tag(it):>13}'
+                    rows.append((text, ('item', it), None))
+        return rows
 
-    def eat(self):
-        it = self.choose('eat', lambda i: i.kind == 'food')
-        return self.eat_food(it) if it else False
+    def note(self, kind, obj):
+        """The line under the inventory about the thing the cursor is on."""
+        p = self.player
+        if kind == 'spell':
+            notes = ', '.join(move_notes(MOVES[obj])).capitalize()
+            return f'{notes}.' if field_spell(obj) else f'{notes}. Cast it in battle (FIGHT).'
+        it = obj
+        if it.kind == 'weapon':
+            if it.magic:
+                return (f'Magic weapon: adds +{it.magic + it.ench} to every attack spell, '
+                        'but barely hurts in melee.')
+            return 'Physical weapon: STRIKE and POWER SMASH hit harder with it.'
+        if it.kind == 'armor':
+            return f'Armor: each point of defense makes you harder to hit. You have {p.ac}.'
+        if it.kind == 'food':
+            return 'Eat when you get hungry. Starving hurts!'
+        if it.sub in SPELLS:
+            notes = ', '.join(move_notes(MOVES[it.sub]))
+            return f'Read it to learn the spell {it.sub} ({notes}).'
+        if it.sub in self.known:
+            return ITEM_NOTES[it.sub]
+        return f'You don\'t know what this {it.kind} does yet. Try it, or read identify.'
+
+    def item_actions(self, it, in_battle):
+        """What can be done with an item: [(label, action)]."""
+        use = {'potion': ('Drink', self.drink), 'scroll': ('Read', self.read_scroll),
+               'food': ('Eat', self.eat_food), 'weapon': ('Wield', self.wield_item),
+               'armor': ('Wear', self.wear_item)}[it.kind]
+        acts = [use]
+        if it is self.player.weapon or it is self.player.armor:
+            acts = []
+        if not in_battle:
+            acts.append(('Drop', self.drop_item))
+        return acts
+
+    def inventory(self, in_battle=False):
+        """Everything you carry in one place, grouped by kind, with your spells on top. Pick
+        a line to use, cast or drop it. Returns True once a turn was spent."""
+        def pick(choice, view):
+            kind, obj = choice
+            done, note = (self.cast_from_pack(obj) if kind == 'spell'
+                          else self.use_from_pack(obj, view, in_battle))
+            return done, done, note
+        footer = ' up/down: move   letter/Enter: use' + ('' if in_battle else ', cast or drop')
+        used = self.browse(lambda: self.inventory_rows(in_battle), pick,
+                           ' BAG' if in_battle else ' INVENTORY', footer + '   Esc/i: close')
+        if used is None:
+            if not self.inventory_rows(in_battle):
+                self.msg('You have nothing to use.' if in_battle else 'You are empty-handed.')
+            return False
+        return True
+
+    def pick_item(self, title, pred, note):
+        """The inventory screen, showing only the items that suit pred, to pick one of them.
+        None if you back out."""
+        return self.browse(lambda: self.inventory_rows(False, pred), lambda choice, view:
+                           (True, choice[1], None), f' {title}',
+                           ' up/down: move   letter/Enter: pick   Esc: back', note)
+
+    def browse(self, rows_of, pick, title, footer, note=None):
+        """The inventory's cursor. rows_of() gives the rows to show; pick(choice, view)
+        returns (finished, result, note to show). Returns the result, or None if closed."""
+        cur, top, shown, jump = 0, 0, None, False
+        while True:
+            rows = rows_of()
+            picks = [i for i, row in enumerate(rows) if row[1]]
+            if not picks:
+                return None
+            cur = max(0, min(cur, len(picks) - 1))
+            sel = picks[cur]
+            height = 19
+            if sel - 1 < top:
+                top = max(0, sel - 1)                 # keep the heading above in view
+            elif sel >= top + height:
+                top = sel - height + 1
+            view = (rows, sel, top, height, title)
+            self.draw_inventory(*view, footer, shown or note or self.note(*rows[sel][1]))
+            shown = None
+            if jump:
+                jump = False
+                finished, result, shown = pick(rows[sel][1], view)
+                if finished:
+                    return result
+                continue
+            k = self.scr.getch()
+            ch = ARROWS.get(k) or (chr(k) if 0 < k < 256 else '')
+            lettered = {self.letter(rows[i][1][1]): n for n, i in enumerate(picks)
+                        if rows[i][1][0] == 'item'}
+            if ch in lettered:                        # an item's letter picks it at once
+                cur, jump = lettered[ch], True
+            elif ch == 'k':
+                cur = (cur - 1) % len(picks)
+            elif ch == 'j':
+                cur = (cur + 1) % len(picks)
+            elif ch in CANCEL_KEYS or ch == 'i':
+                return None
+            elif ch in CONFIRM_KEYS or k == curses.KEY_ENTER:
+                jump = True
+
+    def cast_from_pack(self, name):
+        """Cast a spell outside battle. Returns (turn spent, note to show)."""
+        p = self.player
+        cost = MOVES[name]['mp']
+        if not field_spell(name):
+            return False, f'{name} only works in battle.'
+        if cost > p.mp:
+            return False, f'Not enough MP! {name} costs {cost} MP.'
+        self.use_move(None, name, quiet=True)
+        return True, None
+
+    def use_from_pack(self, it, view, in_battle):
+        """Choose what to do with an item and do it. Returns (turn spent, note)."""
+        acts = self.item_actions(it, in_battle)
+        if not acts:
+            worn = 'in your hand' if it is self.player.weapon else 'being worn'
+            return False, f'That is already {worn}.'
+        labels = [label for label, _ in acts] + ['Back']
+        i = self.select(lambda c: self.draw_inventory(
+            *view, ' up/down: choose   Enter: pick   Esc: back', self.note('item', it),
+            actions=(labels, c)), len(labels))
+        if i is None or i == len(acts):
+            return False, None
+        return acts[i][1](it), None
+
+    def draw_inventory(self, rows, sel, top, height, title, footer, note, actions=None):
+        p = self.player
+        self.scr.erase()
+        self.put(0, 0, title, curses.A_BOLD)
+        self.put(0, 40, f'{len(p.pack)}/{MAX_PACK} items   {p.gold} gold'.rjust(39),
+                 COLORS['yellow'])
+        for i, (text, pick, color) in enumerate(rows[top:top + height]):
+            y, row = 2 + i, top + i
+            if not pick:
+                self.put(y, 1, f' {text} ', COLORS[color] | curses.A_BOLD | curses.A_UNDERLINE)
+                continue
+            attr = curses.A_DIM if color == 'dim' else 0
+            if row == sel:
+                attr |= curses.A_REVERSE if not actions else curses.A_BOLD
+            self.put(y, 2, ('▶ ' if row == sel else '  ') + text[:72], attr)
+        if top > 0:
+            self.put(2, 76, '▲', COLORS['blue'])
+        if top + height < len(rows):
+            self.put(2 + height - 1, 76, '▼', COLORS['blue'])
+        if actions:
+            labels, c = actions
+            y = min(2 + sel - top, 22 - len(labels) - 2)     # beside the item, on screen
+            w = max(16, max(map(len, labels)) + 6)
+            self.box(y, 76 - w, len(labels) + 2, w)
+            for j, label in enumerate(labels):
+                self.put(y + 1 + j, 78 - w, ('▶ ' if j == c else '  ') + label,
+                         curses.A_BOLD if j == c else 0)
+        self.put_rich(22, 1, note[:78], COLORS['cyan'])
+        self.put(23, 0, footer.ljust(80)[:79], curses.A_REVERSE)
+        self.scr.refresh()
 
     def drink(self, it):
         p = self.player
@@ -187,25 +356,7 @@ class ItemsMixin:
         self.msg(f'The scroll glows and crumbles to dust. {self.name} learned {spell}!')
         return True
 
-    # ----------------------------------------------------------- spellbook
-    def spellbook(self):
-        """Show every move the player knows and what the wielded weapon adds to them."""
-        p = self.player
-        lo, hi = p.weapon_dmg
-        w = p.weapon
-        if w and w.magic:
-            weapon = [f'Weapon: {self.item_name(w)}, a magic weapon',
-                      f'Attack spells deal +{p.spell_power} damage. STRIKE and POWER SMASH hit '
-                      f'for only {lo}-{hi}.']
-        else:
-            weapon = [f'Weapon: {self.item_name(w) + ", a physical weapon" if w else "bare hands"}',
-                      f'STRIKE and POWER SMASH hit for {lo}-{hi} (plus strength). Spells get no '
-                      'bonus.']
-        self.draw_spells('SPELLBOOK', p.moves, None, 'press any key', weapon + [
-            '', f'You know {len(p.spells)} of {MAX_SPELLS} spells. Learning another means '
-            'forgetting one.'])
-        self.wait_key()
-
+    # ---------------------------------------------------- forgetting spells
     def pick_forget(self, spell):
         """Ask which known spell to forget for `spell`. None keeps things as they are."""
         options = self.player.spells
@@ -278,12 +429,19 @@ class ItemsMixin:
             self.msg(f'Your feet tingle. You sense {n} trap{"s" if n != 1 else ""} on this level.'
                      if n else 'Your feet tingle, but you sense no traps here.')
         elif kind == 'identify':
-            self.msg('This is a scroll of identify.')
-            target = self.choose('identify', lambda i: i.kind in ('potion', 'scroll')
-                                 and i.sub not in self.known and i.sub not in SPELLS)
-            if target:
-                self.known.add(target.sub)
-                self.msg(f'That is {self.item_name(target)}.')
+            unknown = (lambda i: i.kind in ('potion', 'scroll') and i.sub not in self.known
+                       and i.sub not in SPELLS)
+            target = self.pick_item('IDENTIFY: which one?', unknown,
+                                    'This is a scroll of identify! Pick a potion or scroll to '
+                                    'learn what it is.') if any(map(unknown, p.pack)) else None
+            if not target:
+                self.add_to_pack(Item('scroll', 'identify'))    # nothing read after all
+                self.msg('This is a scroll of identify. '
+                         + ('You roll it back up for later.' if any(map(unknown, p.pack)) else
+                            'You know everything you carry, so you keep it for later.'))
+                return False
+            self.known.add(target.sub)
+            self.msg(f'This is a scroll of identify. That is {self.item_name(target)}.')
         elif kind == 'aggravate monsters':
             for m in self.monsters:
                 m.alert(NOISE_MEMORY)
@@ -298,35 +456,18 @@ class ItemsMixin:
                                 'This food tastes awful, but you eat it anyway.']))
         return True
 
-    def wield(self):
-        p = self.player
-        it = self.choose('wield', lambda i: i.kind == 'weapon')
-        if not it:
-            return False
-        if it is p.weapon:
-            self.msg('You are already wielding that.')
-            return False
-        p.weapon = it
+    def wield_item(self, it):
+        self.player.weapon = it
         self.msg(f'You are now wielding {self.item_name(it)}.')
         return True
 
-    def wear(self):
-        p = self.player
-        it = self.choose('wear', lambda i: i.kind == 'armor')
-        if not it:
-            return False
-        if it is p.armor:
-            self.msg('You are already wearing that.')
-            return False
-        p.armor = it
+    def wear_item(self, it):
+        self.player.armor = it
         self.msg(f'You are now wearing {self.item_name(it)}.')
         return True
 
-    def drop(self):
+    def drop_item(self, it):
         p = self.player
-        it = self.choose('drop', lambda i: True)
-        if not it:
-            return False
         if self.item_at(p.x, p.y) or self.tiles[p.y][p.x] == STAIRS:
             self.msg('There is already something there.')
             return False

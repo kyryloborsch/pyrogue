@@ -18,6 +18,9 @@ from .moves import SPELLS, SPELL_SCROLL_CHANCE
 from .world import Trap, boss_at, environment
 
 
+WALLED = ('rooms', 'crypts')     # layouts built of walled rooms joined by corridors
+
+
 class Room:
     def __init__(self, x, y, w, h):
         self.x, self.y, self.w, self.h = x, y, w, h
@@ -32,6 +35,19 @@ class Room:
     def corners(self):
         x2, y2 = self.x + self.w - 1, self.y + self.h - 1
         return {(self.x, self.y), (x2, self.y), (self.x, y2), (x2, y2)}
+
+    def cells(self):
+        """Every tile of the room, walls included."""
+        return {(x, y) for y in range(self.y, self.y + self.h)
+                for x in range(self.x, self.x + self.w)}
+
+    def wall(self):
+        return {(x, y) for x, y in self.cells()
+                if x in (self.x, self.x + self.w - 1) or y in (self.y, self.y + self.h - 1)}
+
+    def holds(self, x, y):
+        """Is (x, y) inside the room, within its walls?"""
+        return self.x < x < self.x + self.w - 1 and self.y < y < self.y + self.h - 1
 
 
 class DungeonMixin:
@@ -51,7 +67,7 @@ class DungeonMixin:
                 rooms = self.make_crypts()
             else:
                 rooms = self.make_rooms()
-            if len(rooms) >= 4:
+            if len(rooms) >= 4 and (env['layout'] not in WALLED or self.exit_ok(rooms)):
                 break
         self.rooms = rooms
         self.explored = [[False] * MAP_W for _ in range(MAP_H)]
@@ -62,17 +78,21 @@ class DungeonMixin:
 
         others = rooms[1:]
         boss = boss_at(self.depth)
+        if env['layout'] in WALLED:
+            exit_room = rooms[-1]                     # one door, well away from the start
+        else:                                         # caves: the zone farthest from the start
+            cx, cy = rooms[0].center()
+            exit_room = max(others, key=lambda r: abs(r.center()[0] - cx) + abs(r.center()[1] - cy))
         if boss:
-            # the boss waits in the room farthest from the start; no stairs until it falls
-            sx, sy = rooms[0].center()
-            lair = max(others, key=lambda r: abs(r.center()[0] - sx) + abs(r.center()[1] - sy))
+            # the boss waits in the exit room; no stairs until it falls
+            lair = exit_room
             tpl = next(t for t in MONSTERS if t[1] == boss)
             m = Monster(tpl, *self.free_spot(lair), self.depth)
             m.awake = True
             self.monsters.append(m)
             others = [r for r in others if r is not lair] or others
         else:
-            sx, sy = self.free_spot(random.choice(others))
+            sx, sy = self.free_spot(exit_room if env['layout'] in WALLED else random.choice(others))
             self.tiles[sy][sx] = STAIRS
 
         if self.depth % MERCHANT_EVERY == 0:
@@ -115,8 +135,88 @@ class DungeonMixin:
         for _ in range(random.randint(1, 3)):
             gold = Item('gold', count=random.randint(3, 8 + self.depth * 4))
             self.place_item(gold, random.choice(rooms))
+        for room in rooms:                            # no room is left empty
+            if not self.room_has_something(room):
+                if random.random() < 0.4:
+                    self.place_item(Item('gold', count=random.randint(3, 8 + self.depth * 4)), room)
+                else:
+                    self.place_item(self.random_item(), room)
         self.place_traps()
         self.compute_fov()
+
+    def room_has_something(self, room):
+        """Is there anything in the room: you, an item, a monster, a character or stairs?"""
+        things = [self.player] + self.items + self.monsters + self.npcs
+        return (any(room.holds(t.x, t.y) for t in things)
+                or any(self.tiles[y][x] == STAIRS for x, y in room.cells()))
+
+    def exit_ok(self, rooms):
+        """The exit room (rooms[-1]) has a single door, and the rooms it leads to are at
+        least two rooms away from the start (rooms[0])."""
+        exit_room = rooms[-1]
+        if sum(self.tiles[y][x] == DOOR for x, y in exit_room.wall()) != 1:
+            return False
+        return self.room_distance(rooms, rooms[0], exit_room) >= 3
+
+    def connect_exit(self, rooms):
+        """Dig the one way into the exit room (rooms[-1]): from a room at least two rooms
+        away from the start, along a corridor that meets no other corridor or room.
+        False if no such corridor can be dug."""
+        exit_room = rooms[-1]
+        dist = self.room_distances(rooms[:-1], rooms[0])
+        corridors = {(x, y) for y in range(MAP_H) for x in range(MAP_W)
+                     if self.tiles[y][x] == CORRIDOR}
+        crowded = {(x + dx, y + dy) for x, y in corridors for dx, dy in [(0, 0), *DIRS.values()]}
+        ex, ey = exit_room.center()
+        anchors = sorted((r for r in rooms[:-1] if dist.get(r, 0) >= 2),
+                         key=lambda r: abs(r.center()[0] - ex) + abs(r.center()[1] - ey))
+        for anchor in anchors:
+            avoid = (crowded - anchor.cells()).union(
+                *(r.cells() for r in rooms[:-1] if r is not anchor))
+            if self.tunnel(anchor, exit_room, avoid):
+                return True
+        return False
+
+    def room_distance(self, rooms, start, goal):
+        """How many doorways apart two rooms are: 1 when a corridor joins them directly."""
+        return self.room_distances(rooms, start).get(goal, 99)
+
+    def room_distances(self, rooms, start):
+        """How many doorways each room is from start, following the corridors."""
+        owner = {}
+        for i, r in enumerate(rooms):
+            for c in r.cells():
+                owner[c] = i
+        # each stretch of corridor joins the rooms whose doors it touches
+        links = {i: set() for i in range(len(rooms))}
+        seen = set()
+        for y in range(MAP_H):
+            for x in range(MAP_W):
+                if self.tiles[y][x] != CORRIDOR or (x, y) in seen:
+                    continue
+                touched, q = set(), deque([(x, y)])
+                seen.add((x, y))
+                while q:
+                    cx, cy = q.popleft()
+                    for dx, dy in DIRS.values():
+                        n = (cx + dx, cy + dy)
+                        t = self.tiles[n[1]][n[0]]       # corridors never reach the map edge
+                        if t == CORRIDOR and n not in seen:
+                            seen.add(n)
+                            q.append(n)
+                        elif t == DOOR and n in owner:
+                            touched.add(owner[n])
+                for i in touched:
+                    links[i] |= touched - {i}
+        a = rooms.index(start)
+        dist, q = {a: 0}, deque([a])
+        while q:
+            i = q.popleft()
+            for j in links[i]:
+                if j not in dist:
+                    dist[j] = dist[i] + 1
+                    q.append(j)
+        return {rooms[i]: d for i, d in dist.items()}
 
     def eligible_monsters(self):
         return [t for t in MONSTERS if t[6] <= self.depth <= t[7] and 'boss' not in t[9]]
@@ -217,13 +317,17 @@ class DungeonMixin:
                     else:
                         self.tiles[yy][xx] = FLOOR
         self.corners = set().union(*(r.corners() for r in rooms)) if rooms else set()
-        rooms.sort(key=lambda r: r.center()[0])
-        for a, b in zip(rooms, rooms[1:]):
-            self.tunnel(a, b)
+        if len(rooms) < 4:
+            return rooms
+        rooms.sort(key=lambda r: r.center()[0], reverse=random.random() < 0.5)
+        # rooms[0] is where you start and rooms[-1] holds the way down: the other rooms are
+        # chained together with a couple of shortcuts, all clear of the exit room
+        keep_out = rooms[-1].cells()
+        for a, b in zip(rooms[:-2], rooms[1:-1]):
+            self.tunnel(a, b, keep_out)
         for _ in range(2):
-            if len(rooms) > 2:
-                self.tunnel(*random.sample(rooms, 2))
-        return rooms
+            self.tunnel(*random.sample(rooms[:-1], 2), keep_out)
+        return rooms if self.connect_exit(rooms) else []
 
     def make_crypts(self):
         """The Catacombs: tombs laid out on a 5x2 grid, each joined to its neighbors along
@@ -244,21 +348,28 @@ class DungeonMixin:
                                           VWALL if xx in (r.x, r.x + r.w - 1) else FLOOR)
         rooms = list(grid.values())
         self.corners = set().union(*(r.corners() for r in rooms)) if rooms else set()
-        rows = [[grid[gx, gy] for gx in range(5) if (gx, gy) in grid] for gy in (0, 1)]
+        if len(rooms) < 4:
+            return rooms
+        rooms.sort(key=lambda r: r.center()[0], reverse=random.random() < 0.5)
+        exit_room = rooms[-1]                         # a tomb at the far end of a row
+        keep_out = exit_room.cells()
+        rows = [[grid[gx, gy] for gx in range(5)
+                 if (gx, gy) in grid and grid[gx, gy] is not exit_room] for gy in (0, 1)]
         for row in rows:
             for a, b in zip(row, row[1:]):
-                self.tunnel(a, b)
+                self.tunnel(a, b, keep_out)
         if all(rows):
             for a in random.sample(rows[0], min(2, len(rows[0]))):
                 b = min(rows[1], key=lambda r: abs(r.center()[0] - a.center()[0]))
-                self.tunnel(a, b)
+                self.tunnel(a, b, keep_out)
+        if not self.connect_exit(rooms):
+            return []
         for r in rooms:
             if r.w >= 9 and r.h >= 7:                 # rows of pillars, clear of the doors
                 for py in (r.y + 2, r.y + r.h - 3):
                     for px in range(r.x + 2, r.x + r.w - 2, 2):
                         if self.tiles[py][px] == FLOOR:
                             self.tiles[py][px] = PILLAR
-        rooms.sort(key=lambda r: r.center()[0])
         return rooms
 
     def make_caves(self, pools, open_chance=0.56, crevasses=0):
@@ -338,10 +449,10 @@ class DungeonMixin:
                     pool_cells.add((cx, y))
             x = max(6, min(W - 8, x + random.choice((-1, 0, 0, 1))))
 
-    def tunnel(self, a, b):
+    def tunnel(self, a, b, avoid=frozenset()):
         """Dig a corridor between two rooms. Walls are expensive and may only be
         crossed head-on, so corridors make clean doorways instead of running
-        along a wall."""
+        along a wall. The corridor never enters the tiles in avoid."""
         start, goal = a.center(), b.center()
         dist, prev = {start: 0}, {}
         heap = [(0, start)]
@@ -354,7 +465,8 @@ class DungeonMixin:
             here = self.tiles[y][x]
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 nx, ny = x + dx, y + dy
-                if not (0 < nx < MAP_W - 1 and 0 < ny < MAP_H - 1) or (nx, ny) in self.corners:
+                if (not (0 < nx < MAP_W - 1 and 0 < ny < MAP_H - 1) or (nx, ny) in self.corners
+                        or (nx, ny) in avoid):
                     continue
                 t = self.tiles[ny][nx]
                 horizontal = dy == 0
@@ -366,6 +478,8 @@ class DungeonMixin:
                     dist[(nx, ny)] = nd
                     prev[(nx, ny)] = (x, y)
                     heapq.heappush(heap, (nd, (nx, ny)))
+        if goal not in prev:
+            return False
         node = goal
         while node in prev:
             x, y = node
@@ -375,6 +489,7 @@ class DungeonMixin:
             elif t in (HWALL, VWALL):
                 self.tiles[y][x] = DOOR
             node = prev[node]
+        return True
 
     def free_spot(self, room):
         for _ in range(500):

@@ -32,5 +32,7 @@ ARROW_CHORDS = {
 CHORD_DELAY = 80                 # ms to wait for the second arrow of a chord
 CONFIRM_KEYS = {'\n', '\r', ' ', 'z'}
 CANCEL_KEYS = {'\x1b', 'x'}
+# inventory letters skip the keys that already move, close or choose in the inventory
+ITEM_LETTERS = [c for c in 'abcdefghijklmnopqrstuvwxyz' if c not in 'ijkxz']
 
 LOG_SIZE = 1000                  # events kept for the event log (m)

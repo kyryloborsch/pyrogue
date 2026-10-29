@@ -62,24 +62,28 @@ class ActionsMixin:
         else:
             self.find_traps(1, min(0.35, 0.1 + 0.02 * p.level))
         if self.item_at(nx, ny):
-            self.pickup(auto=True)
+            self.pickup()
         elif self.tiles[ny][nx] == STAIRS:
             self.msg('There is a staircase down here.')
         return True
 
     # ---------------------------------------------------------------- traps
     def find_traps(self, radius, chance):
+        """Look for hidden traps within radius squares, or everywhere in sight if radius is
+        None."""
         p = self.player
         found = 0
         for (x, y), t in self.traps.items():
-            if not t.found and max(abs(x - p.x), abs(y - p.y)) <= radius and random.random() < chance:
+            near = (x, y) in self.visible if radius is None else \
+                max(abs(x - p.x), abs(y - p.y)) <= radius
+            if not t.found and near and random.random() < chance:
                 t.found = True
                 found += 1
                 self.msg(f'You found {an(t.name)}!')
         return found
 
     def search(self):
-        found = self.find_traps(2, min(0.9, 0.5 + 0.04 * self.player.level))
+        found = self.find_traps(None, min(0.9, 0.5 + 0.04 * self.player.level))
         if not self.find_hidden_item() and not found:
             self.msg('You search the area but find nothing.')
         return True
@@ -106,7 +110,7 @@ class ActionsMixin:
         self.items.append(it)
         self.msg('You find something hidden behind a loose stone!')
         if spots[0] == (p.x, p.y):
-            self.pickup(auto=True)
+            self.pickup()
         return True
 
     def hurt(self, dmg, cause):

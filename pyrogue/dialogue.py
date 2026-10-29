@@ -78,8 +78,8 @@ class TalkMixin:
             say('Here, take these. You will need them more than I do.')
             self.give_item(npc, Item('potion', 'healing'))
             self.give_item(npc, Item('scroll', 'FIRE BOLT'))
-            say('Read that spell scroll (r) and you will learn FIRE BOLT. Spell scrolls are '
-                'rare, so treasure any you find!')
+            say('Read that spell scroll from your inventory (i) and you will learn FIRE BOLT. '
+                'Spell scrolls are rare, so treasure any you find!')
         while True:
             c = self.npc_ask(npc, 'Is there anything else you wish to know?',
                              ['Battles', 'Moves & types', 'The road ahead', 'Friendly folk',
@@ -154,30 +154,55 @@ class TalkMixin:
                     self.give_item(npc, it)
                     say('Pleasure doing business!')
             elif c == 1:
-                it = self.choose('sell', lambda i: i is not p.weapon and i is not p.armor)
-                self.msgs = []
-                if not it:
-                    continue
-                offer = max(1, self.price(it) // 3)
-                n = it.count
-                if n > 1:
-                    i = self.npc_ask(npc, f'I pay {offer} gold apiece for {self.item_name(it)}. '
-                                     'How many will you sell?',
-                                     [f'One ({offer}g)', f'All {n} ({offer * n}g)', 'Never mind'])
-                    qty = {0: 1, 1: n}.get(i)
-                elif self.npc_ask(npc, f'I can give you {offer} gold for {self.item_name(it)}. Deal?',
-                                  ['Yes', 'No']) == 0:
-                    qty = 1
+                sold = self.sell_screen(npc)
+                if sold is None:
+                    say("You've nothing I can use, friend. I don't take what you're wearing!")
                 else:
-                    qty = None
-                if qty:
-                    p.gold += offer * qty
-                    for _ in range(qty):
-                        self.use_up(it)
-                    say('Done and done!')
+                    say(f'Done and done! That is {sold} gold for you.' if sold else
+                        'Nothing catch your fancy? No matter!')
             else:
                 say('Come back anytime!')
                 return
+
+    def offer(self, it):
+        """What a merchant pays for one of an item."""
+        return max(1, self.price(it) // 3)
+
+    def sell_screen(self, npc):
+        """Sell from the inventory screen, one thing after another. Returns the gold made,
+        or None if there is nothing the merchant will buy."""
+        p = self.player
+        sellable = lambda it: it is not p.weapon and it is not p.armor
+        if not any(map(sellable, p.pack)):
+            return None
+        made = [0]
+
+        def sell(choice, view):
+            it = choice[1]
+            each, n = self.offer(it), it.count
+            labels = ([f'Sell one ({each}g)', f'Sell all {n} ({each * n}g)'] if n > 1 else
+                      [f'Sell it ({each}g)']) + ['Back']
+            i = self.select(lambda c: self.draw_inventory(
+                *view, ' up/down: choose   Enter: pick   Esc: back',
+                f'{npc.name} pays {each} gold' + (' apiece.' if n > 1 else '.'),
+                actions=(labels, c)), len(labels))
+            if i is None or i == len(labels) - 1:
+                return False, None, None
+            qty = n if i == 1 else 1
+            it.count = qty
+            name = self.item_name(it)                 # what is being sold, for the log
+            it.count = n
+            for _ in range(qty):
+                self.use_up(it)
+            p.gold += each * qty
+            made[0] += each * qty
+            self.record(f'You sold {name} for {each * qty} gold.')
+            return False, None, f'Sold {name} for {each * qty} gold! What else?'
+
+        price = lambda it: f'{self.offer(it)}g' + (' each' if it.count > 1 else '')
+        self.browse(lambda: self.inventory_rows(False, sellable, price), sell,
+                    f' SELL TO {npc.name}', ' up/down: move   letter/Enter: sell   Esc: done')
+        return made[0]
 
     def talk_healer(self, npc):
         p = self.player

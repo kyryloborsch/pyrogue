@@ -74,11 +74,9 @@ class BattleMixin:
                     continue
                 self.use_move(m, mv, part=part)
             elif choice == 1:                                 # BAG
-                it = self.choose('use', lambda i: i.kind in ('potion', 'scroll', 'food'))
-                if not it:
+                if not self.inventory(in_battle=True):
                     self.flush_battle_msgs()
                     continue
-                {'potion': self.drink, 'scroll': self.read_scroll, 'food': self.eat_food}[it.kind](it)
                 self.animate_hp()
                 self.flush_battle_msgs()
                 if all(max(abs(f.x - p.x), abs(f.y - p.y)) > 1 for f in self.foes):

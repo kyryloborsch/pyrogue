@@ -325,9 +325,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
             self.run(*DIRS[ch.lower()])
             return False
         actions = {
-            ',': lambda: self.pickup(auto=False), 'g': lambda: self.pickup(auto=False),
-            '>': self.descend, 'q': self.quaff, 'r': self.read, 'e': self.eat,
-            'w': self.wield, 'W': self.wear, 'd': self.drop,
+            '>': self.descend, 'i': self.inventory,
         }
         if ch in actions:
             return actions[ch]()
@@ -337,14 +335,10 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
             return self.search()
         if ch == 'z':
             self.rest()
-        elif ch == 'i':
-            self.show_inventory()
         elif ch == '?':
             self.full_screen(self.HELP)
         elif ch in ('m', '\x10'):
             self.show_log()
-        elif ch == 'S':
-            self.spellbook()
         elif ch == 'A':
             self.auto_skip = not self.auto_skip
             self.msg(f'Auto-skip easy battles: {"ON" if self.auto_skip else "OFF"}.')

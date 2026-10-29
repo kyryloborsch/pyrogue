@@ -27,6 +27,26 @@ ITEM_CHARS = {'potion': '!', 'scroll': '?', 'weapon': ')', 'armor': ']',
 ITEM_COLORS = {'potion': 'magenta', 'scroll': 'cyan', 'weapon': 'cyan', 'armor': 'cyan',
                'food': 'yellow', 'gold': 'yellow', 'amulet': 'magenta'}
 STACKABLE = {'potion', 'scroll', 'food'}
+# the inventory's sections, in order: kind -> heading
+CATEGORIES = {'weapon': 'WEAPONS', 'armor': 'ARMOR', 'potion': 'POTIONS', 'scroll': 'SCROLLS',
+              'food': 'FOOD'}
+# what the inventory says about a potion or scroll once you know what it is
+ITEM_NOTES = {
+    'healing': 'Heals some HP and cures ailments.',
+    'extra healing': 'Heals you fully, cures ailments, restores MP and raises your max HP.',
+    'mana': 'Restores all your MP.',
+    'strength': 'Makes you permanently stronger.',
+    'poison': 'Saps your strength. Best left alone!',
+    'confusion': 'Muddles your head for a while. Best left alone!',
+    'raise level': 'Lifts you straight to the next level.',
+    'magic mapping': 'Shows you the map of this floor.',
+    'teleportation': 'Whisks you away to a random room.',
+    'enchant weapon': 'Makes your weapon permanently better.',
+    'enchant armor': 'Makes your armor permanently better.',
+    'identify': 'Tells you what one unknown potion or scroll is.',
+    'aggravate monsters': 'Wakes every monster on the floor. Best left alone!',
+    'detect traps': 'Reveals every trap on this floor.',
+}
 HIDDEN_ITEM_CHANCE = 0.06        # chance a search turns up a hidden item (once per room)
 
 

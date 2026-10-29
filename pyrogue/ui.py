@@ -5,7 +5,7 @@ import textwrap
 
 from .constants import (
     ARROWS, CANCEL_KEYS, CAVE_WALL, CONFIRM_KEYS, CORRIDOR, DIRS, DOOR, FINAL_DEPTH, FLOOR,
-    HWALL, MAP_H, MAP_TOP, MAP_W, MAX_PACK, PILLAR, POOL, ROCK, STAIRS, STATUS_ROW, VWALL
+    HWALL, MAP_H, MAP_TOP, MAP_W, PILLAR, POOL, ROCK, STAIRS, STATUS_ROW, VWALL
 )
 from .items import ITEM_CHARS, ITEM_COLORS
 from .moves import MAX_SPELLS
@@ -238,26 +238,17 @@ class UIMixin:
         self.scr.refresh()
         self.wait_key()
 
-    def show_inventory(self):
-        p = self.player
-        if not p.pack:
-            self.msg('You are empty-handed.')
-            return
-        self.show()
-        self.menu(f'Inventory ({len(p.pack)}/{MAX_PACK})',
-                  [f'{chr(ord("a") + i)}) {self.describe(it)}' for i, it in enumerate(p.pack)])
-
     HELP = [
         'COMMANDS                                               y k u',
         '  h j k l y u b n   move (or arrow keys / numpad)       \\|/',
         '  H J K L Y U B N   run in that direction             h-@-l',
         '  . or 5            rest one turn                       /|\\',
         '  z                 rest until HP and MP are full      b j n',
-        '  s                 search for hidden traps (and items, in rooms)',
-        '  , or g            pick up item         >  go down stairs',
-        '  i  inventory      m  event log (all that happened)   ?  help  Q  save/quit',
-        '  q  quaff potion   r  read scroll   e  eat food       S  spells & weapon',
-        '  w  wield weapon   W  wear armor    d  drop item       A  auto-skip battles',
+        '  s                 search for traps in sight (and items, in rooms)',
+        '  >                 go down stairs (walk onto an item to pick it up)',
+        '  i  inventory: use, wield, wear or drop items; cast HEAL, MEDITATE, BARRIER',
+        '  m  event log (all that happened)   A  auto-skip easy battles',
+        '  ?  help   Q  save & quit',
         '  Press two arrow keys together (like up + left) to move diagonally.',
         'BATTLES, TRAPS & TALKING',
         '  Bump a monster to fight. In battle, S skips easy fights and M opens the log.',
@@ -265,7 +256,7 @@ class UIMixin:
         '  Walk into a friendly character (&) to talk to them.',
         '  STRIKE and POWER SMASH are aimed. Hit a monster\'s weak spot for extra damage.',
         '  Traps are hidden and each goes off only once. Known traps (^) warn you first.',
-        f'  Spells cost MP and come from spell scrolls (r). You can know {MAX_SPELLS} at once.',
+        f'  Spells cost MP and come from spell scrolls. You can know {MAX_SPELLS} at once.',
         'SYMBOLS',
         '  @ you  & friend  > stairs  ! potion  ? scroll  ) weapon  ] armor  ^ trap',
         '  : food  * gold  " Amulet  + door  # corridor  % rock  ~ lava/water  0 pillar',
