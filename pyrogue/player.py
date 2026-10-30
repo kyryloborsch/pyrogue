@@ -25,7 +25,7 @@ class Player:
         self.stuck = 0               # turns left climbing out of a pit
         self.burn = 0                # turns left burning (hurts every turn)
         self.frozen = 0              # turns left frozen solid (can't act)
-        self.paralyzed = 0           # turns left paralyzed (30% chance to lose each action)
+        self.paralyzed = 0           # 1 while paralyzed: the next move is lost
         self.barrier = 0             # turns left of halved damage
         self.regen = 0
         self.mp = self.max_mp = 10   # mana that spells cost

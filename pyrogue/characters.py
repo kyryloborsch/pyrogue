@@ -106,8 +106,10 @@ LORE = [
     'A sword makes your STRIKEs hurt, but a staff or wand makes every spell burn brighter.',
     'Ogres and trolls stand on weak knees. Aim low and they topple!',
     'A bat with torn WINGS is just a rat. Aim for the wings.',
-    'The Bone King wears his whole kingdom in that crown. Strike at his HEAD.',
-    'Every creature has a weak spot. Hit it once and you will never forget where it is.',
+    'The Bone King feels no blow, wherever it lands. Only HOLY light truly hurts him.',
+    'Most creatures have a weak spot. Hit it once and you will never forget where it is.',
+    'Slugs, golems and demons crack under a good honest blow.',
+    'Not every orc is like the last. Some are tougher, fiercer or swifter than their kin.',
     'Giants of the Frozen Abyss hate fire. A FIRE BOLT melts them like snow.',
     'Never linger in a fight near a crowd. The whole room will come to the party.',
 ]

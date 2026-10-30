@@ -57,6 +57,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         self.traps = {}              # (x, y) -> Trap
         self.env = ENVIRONMENTS[0]   # the environment of the current level
         self.legend = set()          # map symbols seen so far (see LEGEND)
+        self.floor_names = {}        # depth -> the name of that floor (a variant's, if it was one)
 
         p = self.player
         p.weapon = make_weapon('mace', 1)
@@ -64,6 +65,8 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         p.pack = [p.weapon, p.armor, Item('food')]
         self.new_level()
         self.msg(f'Welcome to the Dungeons of Doom, {name}! Someone is waiting to talk to you (&).')
+        if self.env.get('arrive'):
+            self.msg(self.env['arrive'])
         self.record(f'This run\'s seed is {self.seed}.')
 
     @classmethod
@@ -71,6 +74,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         """A game picked up from a save."""
         game = cls.__new__(cls)
         game.legend = set()          # saves from before the legend existed don't have one
+        game.floor_names = {}        # nor floor names
         vars(game).update(state)
         if 'seed' not in state:      # nor a seed: the levels still to come get a new one
             game.seed = cls.new_seed()
@@ -174,10 +178,9 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
             p.frozen -= 1
             if not p.frozen:
                 self.msg('You thaw out.')
-        if p.paralyzed:
-            p.paralyzed -= 1
-            if not p.paralyzed:
-                self.msg('You can move freely again.')
+        if p.paralyzed and not self.foes:  # a turn spent resting uses up the lost move too
+            p.paralyzed = 0
+            self.msg('You can move freely again.')
         if p.barrier:
             p.barrier -= 1
             if not p.barrier:

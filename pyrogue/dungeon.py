@@ -15,7 +15,7 @@ from .items import (
 )
 from .monsters import MONSTERS, Monster
 from .moves import SPELLS, SPELL_SCROLL_CHANCE
-from .world import Trap, boss_at, environment
+from .world import Trap, boss_at, floor_env
 
 
 WALLED = ('rooms', 'crypts')     # layouts built of walled rooms joined by corridors
@@ -65,20 +65,23 @@ class DungeonMixin:
             random.setstate(dice)
 
     def build_level(self):
-        env = self.env = environment(self.depth)
+        env = self.env = floor_env(self.depth, random.random())
+        self.floor_names[self.depth] = env['name']
         while True:
             self.tiles = [[ROCK] * MAP_W for _ in range(MAP_H)]
-            if env['layout'] == 'caves':
-                rooms = self.make_caves(env['pools'])
-            elif env['layout'] == 'glacier':
-                rooms = self.make_caves(env['pools'], open_chance=0.6,
-                                        crevasses=random.randint(1, 2))
+            if env['layout'] in ('caves', 'glacier'):
+                rooms = self.make_caves(env['pools'],
+                                        open_chance=env.get('open_chance', 0.56),
+                                        crevasses=random.randint(*env.get('crevasses', (0, 0))),
+                                        chambers=random.choice(env.get('chambers', (0,))))
             elif env['layout'] == 'crypts':
-                rooms = self.make_crypts()
+                rooms = self.make_crypts(env.get('collapse', 0.15))
             else:
                 rooms = self.make_rooms()
             if len(rooms) >= 4 and (env['layout'] not in WALLED or self.exit_ok(rooms)):
                 break
+        if env.get('rubble'):
+            self.scatter_rubble(rooms, random.randint(*env['rubble']))
         self.rooms = rooms
         self.explored = [[False] * MAP_W for _ in range(MAP_H)]
         self.monsters, self.items, self.npcs = [], [], []
@@ -339,13 +342,30 @@ class DungeonMixin:
             self.tunnel(*random.sample(rooms[:-1], 2), keep_out)
         return rooms if self.connect_exit(rooms) else []
 
-    def make_crypts(self):
+    def scatter_rubble(self, rooms, n):
+        """Heap up to n piles of fallen rock in the rooms, clear of doorways, never cutting
+        any part of the map off."""
+        spots = [(x, y) for r in rooms for x, y in r.cells() - r.wall()
+                 if self.tiles[y][x] == FLOOR
+                 and not any(self.tiles[y + dy][x + dx] == DOOR for dx, dy in DIRS.values())]
+        random.shuffle(spots)
+        for x, y in spots[:n * 3]:
+            if n <= 0:
+                break
+            self.tiles[y][x] = CAVE_WALL
+            if self.connected():
+                n -= 1
+            else:
+                self.tiles[y][x] = FLOOR
+
+    def make_crypts(self, collapse=0.15):
         """The Catacombs: tombs laid out on a 5x2 grid, each joined to its neighbors along
-        the row, with a couple of passages between the rows. Big halls get rows of pillars."""
+        the row, with a couple of passages between the rows. Big halls get rows of pillars.
+        collapse: the chance each tomb has caved in, leaving its cell empty."""
         grid = {}
         for gx in range(5):
             for gy in range(2):
-                if random.random() < 0.15:
+                if random.random() < collapse:
                     continue                          # an empty cell: a collapsed tomb
                 w, h = random.randint(6, 13), random.randint(5, 8)
                 x = gx * 16 + random.randint(1, 15 - w)
@@ -382,10 +402,11 @@ class DungeonMixin:
                             self.tiles[py][px] = PILLAR
         return rooms
 
-    def make_caves(self, pools, open_chance=0.56, crevasses=0):
+    def make_caves(self, pools, open_chance=0.56, crevasses=0, chambers=0):
         """Cellular-automaton caves dotted with pools (lava or icy water), optionally split
-        by crevasses of icy water. Returns zones of the map that the rest of the code uses
-        like rooms."""
+        by crevasses of the same, with up to `chambers` walled rooms set into the rock.
+        Returns zones of the map that the rest of the code uses like rooms, then the
+        chambers (never first, so you never start in one)."""
         W, H = MAP_W, MAP_H
         cave = [[0 < x < W - 1 and 0 < y < H - 1 and random.random() < open_chance
                  for x in range(W)] for y in range(H)]
@@ -441,7 +462,87 @@ class DungeonMixin:
                 if cells >= 25:
                     zones.append(z)
         zones.sort(key=lambda r: r.center()[0])
-        return zones
+        return zones + self.embed_chambers(chambers)
+
+    def embed_chambers(self, n):
+        """Set up to n walled chambers into the rock at the edge of the caves. A chamber is
+        mostly in solid rock, but up to a third of it may jut out over the cave floor, as
+        long as the cave stays in one piece. Each opens onto the cave through a single
+        door, with a short passage dug through the rock when the cave isn't right outside.
+        Returns the chambers."""
+        chambers = []
+        for _ in range(300):
+            if len(chambers) >= n:
+                break
+            w, h = random.randint(6, 10), random.randint(5, 7)
+            r = Room(random.randint(1, MAP_W - w - 1), random.randint(1, MAP_H - h - 1), w, h)
+            under = [self.tiles[y][x] for x, y in r.cells()]
+            if (any(r.overlaps(c, 2) for c in chambers)
+                    or any(t not in (ROCK, CAVE_WALL, FLOOR) for t in under)
+                    or under.count(FLOOR) > len(under) // 3):
+                continue
+            before = [row[:] for row in self.tiles]
+            for x, y in r.cells():
+                self.tiles[y][x] = (HWALL if y in (r.y, r.y + r.h - 1) else
+                                    VWALL if x in (r.x, r.x + r.w - 1) else ROCK)
+            way = self.chamber_door(r)
+            for x, y in r.cells() - r.wall():
+                self.tiles[y][x] = FLOOR
+            if not way:
+                self.tiles = before
+                continue
+            (dx, dy), passage = way
+            self.tiles[dy][dx] = DOOR
+            for x, y in passage:
+                self.tiles[y][x] = FLOOR
+                for nx, ny in [(x + ox, y + oy) for ox, oy in DIRS.values()]:
+                    if self.tiles[ny][nx] == ROCK:
+                        self.tiles[ny][nx] = CAVE_WALL
+            if not self.connected():                  # it cut the cave apart: undo it
+                self.tiles = before
+                continue
+            chambers.append(r)
+        return chambers
+
+    def connected(self):
+        """Can every walkable tile on the map reach every other?"""
+        walkable = {(x, y) for y in range(MAP_H) for x in range(MAP_W) if self.walkable(x, y)}
+        if not walkable:
+            return True
+        start = next(iter(walkable))
+        seen, q = {start}, deque([start])
+        while q:
+            x, y = q.popleft()
+            for dx, dy in DIRS.values():
+                n = (x + dx, y + dy)
+                if n in walkable and n not in seen:
+                    seen.add(n)
+                    q.append(n)
+        return len(seen) == len(walkable)
+
+    def chamber_door(self, r):
+        """Where a chamber's door goes: the wall tile with the shortest way out to the cave
+        floor, straight through at most 3 tiles of rock. Returns (door, passage) or None."""
+        best = []
+        for x, y in r.wall() - r.corners():
+            out = ((0, -1) if y == r.y else (0, 1) if y == r.y + r.h - 1 else
+                   (-1, 0) if x == r.x else (1, 0))
+            passage = []
+            for k in range(1, 5):
+                cx, cy = x + out[0] * k, y + out[1] * k
+                if not (0 < cx < MAP_W - 1 and 0 < cy < MAP_H - 1):
+                    break
+                t = self.tiles[cy][cx]
+                if t == FLOOR:
+                    best.append((len(passage), random.random(), (x, y), passage))
+                    break
+                if t not in (ROCK, CAVE_WALL):
+                    break
+                passage.append((cx, cy))
+        if not best:
+            return None
+        _, _, door, passage = min(best)
+        return door, passage
 
     def carve_crevasse(self, cave, pool_cells):
         """Cut a winding, two-wide crevasse from the top of the map to the bottom, crossed by
@@ -540,7 +641,7 @@ class DungeonMixin:
 
     # ------------------------------------------------------------------ fov
     def compute_fov(self):
-        p, r = self.player, FOV_RADIUS
+        p, r = self.player, self.env.get('sight', FOV_RADIUS)
         self.visible = {(p.x, p.y)}
         for i in range(-r, r + 1):
             for tx, ty in ((p.x + i, p.y - r), (p.x + i, p.y + r),
@@ -560,7 +661,8 @@ class DungeonMixin:
         dx, dy = abs(x1 - x0), -abs(y1 - y0)
         sx, sy = (1 if x1 > x0 else -1), (1 if y1 > y0 else -1)
         err, x, y = dx + dy, x0, y0
-        r2 = FOV_RADIUS * FOV_RADIUS + FOV_RADIUS
+        sight = self.env.get('sight', FOV_RADIUS)
+        r2 = sight * sight + sight
         while True:
             if not (0 <= x < MAP_W and 0 <= y < MAP_H):
                 return

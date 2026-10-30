@@ -17,7 +17,8 @@ class ActionsMixin:
         if p.frozen:
             self.msg('You are frozen solid and cannot move!')
             return True
-        if p.paralyzed and random.random() < 0.3:
+        if p.paralyzed:
+            p.paralyzed = 0
             self.msg('Your muscles lock up! You cannot move.')
             return True
         if p.confused and random.random() < 0.5:
@@ -227,6 +228,8 @@ class ActionsMixin:
         self.msg(f'You are now on depth {self.depth} of {FINAL_DEPTH}.')
         if self.depth == self.env['depth'] and self.env['intro']:
             self.msg(self.env['intro'])
+        if self.env.get('arrive'):
+            self.msg(self.env['arrive'])
         boss = boss_at(self.depth)
         if boss:
             self.msg(BOSSES[boss]['arrive'])

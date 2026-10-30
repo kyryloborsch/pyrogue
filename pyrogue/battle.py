@@ -7,7 +7,7 @@ import textwrap
 
 from .constants import DIRS, FINAL_DEPTH, STAIRS
 from .items import Item
-from .monsters import MONSTERS, Monster, PARTS, WEAK_SPOT_MULT
+from .monsters import MODIFIERS, MONSTERS, Monster, PARTS, WEAK_SPOT_MULT
 from .moves import EFFECTIVENESS, MOVES, STATUSES, move_notes
 from .player import xp_needed
 from .sprites import SPRITES
@@ -26,7 +26,7 @@ class BattleMixin:
     @staticmethod
     def called(m):
         """How battle text names a monster: 'wild RAT', or just 'BONE KING' for a boss."""
-        return m.name.upper() if 'boss' in m.flags else f'wild {m.name.upper()}'
+        return m.name.upper() if 'boss' in m.flags else f'wild {m.title.upper()}'
 
     def battle(self, m, ambush=False):
         p = self.player
@@ -37,7 +37,7 @@ class BattleMixin:
         if 'boss' in m.flags:
             intro = f'BOSS BATTLE! The {m.name.upper()} blocks the way!'
         else:
-            intro = f'A wild {m.name.upper()} {"attacked" if ambush else "appeared"}!'
+            intro = f'A {self.called(m)} {"attacked" if ambush else "appeared"}!'
         if self.auto_skip and not caught and self.easy_win():
             if self.skip_battle(quiet=True):
                 self.end_battle(None)
@@ -143,7 +143,8 @@ class BattleMixin:
         if p.frozen:
             p.frozen -= 1
             self.say(f'{self.name} is frozen solid!')
-        elif p.paralyzed and random.random() < 0.3:
+        elif p.paralyzed:
+            p.paralyzed = 0                   # paralysis costs exactly one move
             self.say(f"{self.name} is paralyzed! {self.name} can't move!")
         elif p.confused and random.random() < 1 / 3:
             self.say(f'{self.name} is confused! {self.name} stumbled and got hurt!')
@@ -422,8 +423,8 @@ class BattleMixin:
                     self.damage_fx('player', chill, 'cyan')
                 say('You were chilled to the bone!')
         if special and 'paralyze' in m.flags and not p.paralyzed:
-            p.paralyzed = random.randint(4, 6)
-            say('You are paralyzed! You may be unable to move!')
+            p.paralyzed = 1
+            say('You are paralyzed! You will lose your next move!')
         if special and 'confuse' in m.flags and not p.confused:
             p.confused = random.randint(3, 6)
             say('You became confused!')
@@ -611,8 +612,11 @@ class BattleMixin:
             mult = PARTS[part][1] * (WEAK_SPOT_MULT if weak else 1)
             self.put(17, 59, f'HIT     {self.hit_chance(m, info, part)}%')
             self.put(18, 59, f'DAMAGE  x{mult:g}', COLORS['yellow'] | curses.A_BOLD if weak else 0)
-            self.put(20, 59, 'its weak spot!' if weak else 'weak spot: ???' if not known else '',
-                     COLORS['cyan'])
+            if m.weak is None:
+                hint = 'no weak spot'
+            else:
+                hint = 'its weak spot!' if weak else 'weak spot: ???' if not known else ''
+            self.put(20, 59, hint, COLORS['cyan'])
         i = self.select(lambda cur: self.draw_battle(extra=lambda: extra(cur)), len(parts), cols=2)
         return None if i is None else parts[i]
 
@@ -683,7 +687,9 @@ class BattleMixin:
         self.scr.erase()
         # enemy panel
         self.box(1, 2, 4, 36)
-        self.put(2, 4, m.name.upper(), curses.A_BOLD)
+        if m.mod:
+            self.put(2, 4, m.mod, COLORS[MODIFIERS[m.mod]['color']] | curses.A_BOLD)
+        self.put(2, 4 + (len(m.mod) + 1 if m.mod else 0), m.name.upper(), curses.A_BOLD)
         if 'boss' in m.flags:
             self.put(2, 22, 'BOSS', COLORS['red'] | curses.A_BOLD | curses.A_REVERSE)
         self.put(2, 30, f'Lv{m.level}')
@@ -693,7 +699,7 @@ class BattleMixin:
             tags = ' '.join(STATUSES[s][0] for s in m.status)
             self.put(4, 5, f' {tags} ', COLORS['magenta'] | curses.A_BOLD)
         for i, f in enumerate(self.foes[1:4]):
-            self.put(5 + i, 4, f'+ {f.name.upper()} Lv{f.level}  HP {f.hp}/{f.max_hp}',
+            self.put(5 + i, 4, f'+ {f.title.upper()} Lv{f.level}  HP {f.hp}/{f.max_hp}',
                      COLORS[f.color] | curses.A_BOLD)
         if len(self.foes) > 4:
             self.put(8, 4, f'+ {len(self.foes) - 4} more...')

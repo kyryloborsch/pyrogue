@@ -40,7 +40,7 @@ EFFECTIVENESS = {
     ('fire', 'beast'): 1.5, ('fire', 'giant'): 1.5, ('fire', 'dragon'): 0.5,
     ('holy', 'undead'): 1.5, ('holy', 'dragon'): 1.25,
     ('fire', 'elemental'): 0.5, ('fire', 'demon'): 0.5, ('holy', 'demon'): 1.5,
-    ('normal', 'undead'): 0.75,
+    ('normal', 'undead'): 0.75, ('normal', 'elemental'): 1.25, ('normal', 'demon'): 1.25,
     ('ice', 'dragon'): 1.5, ('ice', 'elemental'): 1.5, ('ice', 'demon'): 0.5,
     ('storm', 'humanoid'): 1.5, ('storm', 'beast'): 1.25, ('storm', 'elemental'): 0.5,
     ('poison', 'undead'): 0.5, ('poison', 'elemental'): 0.5, ('poison', 'giant'): 0.75,

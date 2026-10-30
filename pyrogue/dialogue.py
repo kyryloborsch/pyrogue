@@ -91,7 +91,8 @@ class TalkMixin:
                 say('In battle you may FIGHT, open your BAG, GUARD to halve the next blow, '
                     'or try to RUN. Running works best against weaker foes.')
                 say('When you STRIKE or POWER SMASH, you choose where to hit. The HEAD is hard '
-                    'to hit but hurts more, and every monster has a weak spot somewhere.')
+                    'to hit but hurts more, and most monsters have a weak spot somewhere. '
+                    'Not the undead: plain blows barely trouble them.')
                 say('Hit a weak spot once and you will remember it for every monster of that '
                     'kind. It is never the BODY, so be bold!')
                 say('A monster you escape from is dazed for a few turns. Use them well!')
@@ -104,7 +105,9 @@ class TalkMixin:
                 say('Swords and maces make your STRIKEs hit harder. Wands and staffs barely '
                     'scratch a foe, but they make every spell you cast hit harder.')
                 say('FIRE scorches beasts and giants, but dragons shrug it off. HOLY light '
-                    'sears the undead. Weak spots hurt, but they will not win a fight alone.')
+                    'sears the undead. Plain blows crack elementals and demons, but the undead '
+                    'hardly feel them.')
+                say('Weak spots hurt, but they will not win a fight alone.')
                 say('Every spell costs mana (MP). It slowly returns as you walk and rest, '
                     'and comes back in full when you grow a level.')
                 say('Many spells leave a mark: burns and poison hurt every turn, while sleep, '
@@ -370,12 +373,15 @@ class TalkMixin:
         say('Ooooh... another living soul, wandering my tomb...')
         say('I fell here long ago. Too late I learned where these creatures are weakest. '
             'Let my knowledge serve you better...')
-        names = sorted({t[1] for t in self.eligible_monsters()} - self.weak_known)
+        names = sorted({t[1] for t in self.eligible_monsters() if t[1] in WEAK_SPOTS}
+                       - self.weak_known)
         secrets = random.sample(names, min(3, len(names)))
         if not secrets:
             say('But you already know all that I knew. Go in peace...')
         for name in secrets:
             self.weak_known.add(name)
             say(f'The {name.upper()}... strike at its {WEAK_SPOTS[name]}.')
+        say('But the dead who walk these halls... they have no weak spot. Only HOLY light '
+            'can hurt them.')
         say('Avenge me... The spirit fades away into the cold stone.')
         self.npcs.remove(npc)

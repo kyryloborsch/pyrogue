@@ -119,26 +119,45 @@ class UIMixin:
             self.put(MAP_TOP + m.y, m.x, m.ch, COLORS[m.color] | curses.A_BOLD)
         self.put(MAP_TOP + p.y, p.x, '@', COLORS['yellow'] | curses.A_BOLD)
 
-        hunger = ('' if p.food > 300 else 'Hungry' if p.food > 150
-                  else 'Weak' if p.food > 0 else 'Starving')
-        strength = f'Str:{p.str}' + (f'({p.max_str})' if p.str < p.max_str else '')
-        status = (f'Depth:{self.depth} HP:{p.hp}({p.max_hp}) MP:{p.mp}({p.max_mp}) {strength} '
-                  f'Def:{p.ac} Lvl:{p.level} Exp:{p.xp}/{xp_needed(p.level)} Gold:{p.gold}')
-        self.put(STATUS_ROW, 0, status)
-        hp_attr = COLORS['red'] | curses.A_BOLD if p.hp <= p.max_hp // 3 else 0
-        self.put(STATUS_ROW, status.index('HP:'), f'HP:{p.hp}', hp_attr)
-        flags = ' '.join(f for f in (hunger, 'Confused' if p.confused else '',
-                                     'Stuck' if p.stuck else '', 'Burning' if p.burn else '',
-                                     'Frozen' if p.frozen else '',
-                                     'Paralyzed' if p.paralyzed else '') if f)
-        if flags:
-            self.put(STATUS_ROW, len(status) + 2, flags, COLORS['red'] | curses.A_BOLD)
-        if self.auto_skip:
-            self.put(STATUS_ROW, len(status) + 2 + (len(flags) + 1 if flags else 0),
-                     'Auto', COLORS['green'] | curses.A_BOLD)
+        self.draw_status()
         self.draw_log_panel()
         if refresh:
             scr.refresh()
+
+    def draw_status(self):
+        """The status row under the map: your numbers, then your status effects. It always
+        fits in 80 columns (the log panel may start right after), so when it's crowded the
+        effects get short names, then the numbers do, and then the EXP goes."""
+        p = self.player
+        hunger = ('' if p.food > 300 else 'Hungry' if p.food > 150
+                  else 'Weak' if p.food > 0 else 'Starving')
+        bad, good = COLORS['red'] | curses.A_BOLD, COLORS['green'] | curses.A_BOLD
+        effects = [(word, short, attr) for word, short, attr, on in (
+            (hunger, hunger.replace('Starving', 'Starv'), bad, hunger), ('Confused', 'Conf', bad, p.confused),
+            ('Stuck', 'Stuck', bad, p.stuck), ('Burning', 'Burn', bad, p.burn),
+            ('Frozen', 'Froz', bad, p.frozen), ('Paralyzed', 'Para', bad, p.paralyzed),
+            ('Barrier', 'Bar', good, p.barrier), ('Auto', 'Auto', good, self.auto_skip)) if on]
+        weak = f'({p.max_str})' if p.str < p.max_str else ''
+        exp = f'{p.xp}/{xp_needed(p.level)}'
+        full = (f'Depth:{self.depth} HP:{p.hp}({p.max_hp}) MP:{p.mp}({p.max_mp}) '
+                f'Str:{p.str}{weak} Def:{p.ac} Lvl:{p.level} Exp:{exp} Gold:{p.gold}')
+        short = (f'D:{self.depth} HP:{p.hp}({p.max_hp}) MP:{p.mp}({p.max_mp}) '
+                 f'St:{p.str}{weak} AC:{p.ac} L:{p.level} X:{exp} ${p.gold}')
+        shortest = short.replace(f' X:{exp}', '')
+        for status, names in ((full, 0), (full, 1), (short, 1), (shortest, 1)):
+            words = [e[names] for e in effects]
+            if len(status) + (2 + len(' '.join(words)) if words else 0) <= 79:
+                break
+        self.put(STATUS_ROW, 0, status)
+        hp_attr = COLORS['red'] | curses.A_BOLD if p.hp <= p.max_hp // 3 else 0
+        self.put(STATUS_ROW, status.index('HP:'), f'HP:{p.hp}', hp_attr)
+        x = len(status) + 2
+        for i, (word, (_, _, attr)) in enumerate(zip(words, effects)):
+            if x + len(word) > (79 if i == len(words) - 1 else 77):
+                self.put(STATUS_ROW, x, '+', bad)   # no room for the rest: say there's more
+                break
+            self.put(STATUS_ROW, x, word, attr)
+            x += len(word) + 1
 
     def log_lines(self, width, entries, stamps=True):
         """Event log entries as (prefix, text, attr) screen lines wrapped to `width`, oldest
@@ -148,7 +167,8 @@ class UIMixin:
         for turn, d, text, n in entries:
             if d != depth:
                 depth = d
-                lines.append(('', f'-- Depth {d}: {environment(max(1, d))["name"]} --'[:width],
+                name = self.floor_names.get(d) or environment(max(1, d))['name']
+                lines.append(('', f'-- Depth {d}: {name} --'[:width],
                               COLORS['cyan'] | curses.A_BOLD))
             if n > 1:
                 text += f' (x{n})'
