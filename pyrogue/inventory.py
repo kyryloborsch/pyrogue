@@ -134,7 +134,7 @@ class ItemsMixin:
                              None if field_spell(name) else 'dim'))
         for kind, heading in CATEGORIES.items():
             items = [it for it in self.pack_order() if it.kind == kind and (not only or only(it))]
-            if in_battle and kind not in ('potion', 'scroll', 'food'):
+            if in_battle and kind == 'armor':      # no changing armor mid-fight
                 continue
             if items:
                 rows.append((heading, None, 'yellow'))

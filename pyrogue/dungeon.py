@@ -135,7 +135,10 @@ class DungeonMixin:
         others = [r for r in others if r not in quiet] or others
         eligible = self.eligible_monsters()
         for _ in range(5 + self.depth // 2 + random.randint(0, 3)):
-            x, y = self.free_spot(random.choice(others))
+            if env['layout'] in WALLED:
+                x, y = self.free_spot(random.choice(others))
+            else:                                     # open caves: spread them out
+                x, y = self.spread_spot(others, [(m.x, m.y) for m in self.monsters] + [(p.x, p.y)])
             self.monsters.append(Monster(random.choice(eligible), x, y, self.depth))
 
         for _ in range(random.randint(3, 6)):
@@ -601,6 +604,16 @@ class DungeonMixin:
                 self.tiles[y][x] = DOOR
             node = prev[node]
         return True
+
+    def spread_spot(self, rooms, taken):
+        """A free floor tile in rooms, the farthest from the taken spots of a dozen picked at
+        random, so the open caves don't fill up with clumps of monsters."""
+        cells = [(x, y) for r in rooms for x, y in r.cells()
+                 if self.tiles[y][x] == FLOOR and not self.occupied(x, y) and not self.item_at(x, y)]
+        if not cells:
+            return self.free_spot(random.choice(rooms))
+        return max(random.sample(cells, min(12, len(cells))),
+                   key=lambda c: min(max(abs(c[0] - x), abs(c[1] - y)) for x, y in taken))
 
     def free_spot(self, room):
         for _ in range(500):
