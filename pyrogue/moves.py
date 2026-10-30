@@ -82,3 +82,5 @@ STATUSES = {
     'paralyze': ('PAR', (3, 5), 'is paralyzed! It may be unable to move!'),
     'confuse':  ('CNF', (2, 4), 'became confused!'),
 }
+# The statuses that can cost a monster its turn. With every foe under one, RUN always works.
+DISABLING = ('sleep', 'freeze', 'paralyze', 'confuse')

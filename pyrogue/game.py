@@ -50,7 +50,6 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         self.npcs_met = set()        # kinds that have appeared; only merchants come back
         self.bard_depth = random.randint(2, BARD_BY)   # the bard turns up by this depth
         self.weak_known = set()      # monster names whose weak spot the player has found
-        self.auto_skip = False       # resolve easy battles without the battle screen
         self.pending_key = None      # key read while waiting for a second arrow key
         self.saved_depth = 0         # the depth last autosaved
         self.snapshot = None         # the game as it was at the start of this turn (bytes)
@@ -65,8 +64,6 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         p.pack = [p.weapon, p.armor, Item('food')]
         self.new_level()
         self.msg(f'Welcome to the Dungeons of Doom, {name}! Someone is waiting to talk to you (&).')
-        if self.env.get('arrive'):
-            self.msg(self.env['arrive'])
         self.record(f'This run\'s seed is {self.seed}.')
 
     @classmethod
@@ -358,9 +355,6 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
             self.full_screen(self.help_lines())
         elif ch in ('m', '\x10'):
             self.show_log()
-        elif ch == 'A':
-            self.auto_skip = not self.auto_skip
-            self.msg(f'Auto-skip easy battles: {"ON" if self.auto_skip else "OFF"}.')
         elif ch == 'Q':
             self.show()
             self.draw(['s) save and quit   a) abandon this run   Esc) keep playing'])

@@ -58,6 +58,12 @@ class Player:
         return w.dmg[0] + bonus, w.dmg[1] + bonus
 
     @property
+    def melee_bonus(self):
+        """Extra damage every physical blow gets as you level up: 1, plus 1 per 2 levels.
+        A magic weapon gets none, so it still barely hurts in melee."""
+        return 0 if self.weapon and self.weapon.magic else 1 + self.level // 2
+
+    @property
     def spell_power(self):
         """Extra damage a magic weapon adds to every attack spell."""
         w = self.weapon

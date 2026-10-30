@@ -43,8 +43,8 @@ ENVIRONMENTS = [
               'deep crevasses. Welcome to the Frozen Abyss.'},
 ]
 
-# Any floor but the last of its environment has VARIANT_CHANCE of being that environment's
-# variant instead: these settings laid over the environment's own. arrive is said every
+# Any floor but depth 1 and the last of its environment has VARIANT_CHANCE of being that
+# environment's variant instead: these settings laid over the environment's own. arrive is said every
 # time you reach one. sight: how far you can see (FOV_RADIUS otherwise). collapse: the
 # chance each tomb of the Catacombs has caved in. rubble: (fewest, most) heaps of fallen
 # rock in the tombs.
@@ -99,9 +99,10 @@ def last_floor(env):
 
 def floor_env(depth, roll):
     """The settings a floor is built with: its environment's, or, when roll (0-1) comes in
-    under VARIANT_CHANCE and it isn't the environment's last floor, its variant's."""
+    under VARIANT_CHANCE and it's neither depth 1 nor the environment's last floor, its
+    variant's."""
     env = environment(depth)
-    if depth < last_floor(env) and roll < VARIANT_CHANCE:
+    if 1 < depth < last_floor(env) and roll < VARIANT_CHANCE:
         return {**env, **VARIANTS[env['name']]}
     return env
 

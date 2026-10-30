@@ -136,7 +136,7 @@ class UIMixin:
             (hunger, hunger.replace('Starving', 'Starv'), bad, hunger), ('Confused', 'Conf', bad, p.confused),
             ('Stuck', 'Stuck', bad, p.stuck), ('Burning', 'Burn', bad, p.burn),
             ('Frozen', 'Froz', bad, p.frozen), ('Paralyzed', 'Para', bad, p.paralyzed),
-            ('Barrier', 'Bar', good, p.barrier), ('Auto', 'Auto', good, self.auto_skip)) if on]
+            ('Barrier', 'Bar', good, p.barrier)) if on]
         weak = f'({p.max_str})' if p.str < p.max_str else ''
         exp = f'{p.xp}/{xp_needed(p.level)}'
         full = (f'Depth:{self.depth} HP:{p.hp}({p.max_hp}) MP:{p.mp}({p.max_mp}) '
@@ -329,11 +329,11 @@ class UIMixin:
         '  s                 search for traps in sight (and items, in rooms)',
         '  >                 go down stairs (walk onto an item to pick it up)',
         '  i  inventory: use, wield, wear or drop items; cast HEAL, MEDITATE, BARRIER',
-        '  m  event log (all that happened)   A  auto-skip easy battles',
+        '  m  event log (all that happened)',
         '  ?  help   Q  save & quit',
         '  Press two arrow keys together (like up + left) to move diagonally.',
         'BATTLES, TRAPS & TALKING',
-        '  Bump a monster to fight. In battle, S skips easy fights and M opens the log.',
+        '  Bump a monster to fight. In battle, M opens the event log.',
         '  In menus: arrows/hjkl move the cursor, Enter/space/z choose, Esc/x go back.',
         '  Walk into a friendly character (&) to talk to them.',
         '  STRIKE and POWER SMASH are aimed. Hit a monster\'s weak spot for extra damage.',

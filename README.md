@@ -34,7 +34,7 @@ python3 rogue.py
 | 11–15  | Ember Caverns     | Open caves with lava pools               |
 | 16–20  | Frozen Abyss      | Open ice caves split by crevasses of freezing water, crossed by narrow ice bridges. Now and then, walled chambers are set into the cave walls, each with a single door. The Frost Wyrm guards the Amulet on depth 20 |
 
-Every floor except the last of its environment has a 1 in 4 chance of being that environment's variant. A message says so when you arrive, and the event log names the floor:
+Every floor except depth 1 and the last of each environment has a 1 in 4 chance of being that environment's variant. A message says so when you arrive, and the event log names the floor:
 
 | Variant | Instead of | What's different |
 |---------|------------|------------------|
@@ -49,13 +49,13 @@ A boss level has no stairs down until the boss falls. The boss waits in that sam
 
 ## Features
 
-- **Pokémon-style battles.** Bump into a monster to start a battle. Moves have types, accuracy, mana costs and status effects (burn, poison, freeze, sleep, paralyze, confusion). Some types are strong or weak against certain kinds of monsters, but a weak spot only deals 1.5× damage, so it helps without deciding the fight. Easy fights can be skipped. When someone is hit, their sprite jolts and flashes, and the damage floats up beside it (yellow for a critical hit or weak spot, other colors for burns, poison, frost and confusion).
+- **Pokémon-style battles.** Bump into a monster to start a battle. Moves have types, accuracy, mana costs and status effects (burn, poison, freeze, sleep, paralyze, confusion). Some types are strong or weak against certain kinds of monsters, but a weak spot only deals 1.5× damage, so it helps without deciding the fight. When someone is hit, their sprite jolts and flashes, and the damage floats up beside it (yellow for a critical hit or weak spot, other colors for burns, poison, frost and confusion).
 - **Monster modifiers.** About one ordinary monster in seven is born different, and battle shows it before its name: TOUGH (1.25× HP), FIERCE (1.15× damage), ARMORED (+2 defense), SWIFT (hits a little more often and is a little harder to run from) or FEEBLE (a bit weaker all round). The stronger ones give more EXP, and a feeble one gives less. Bosses never get one.
 - **Aimed attacks and weak spots.** STRIKE and POWER SMASH are aimed at a body part. The head is harder to hit but hurts more, and wings and tails are harder to hit too. Most monsters have one hidden weak spot that takes 1.5× damage. Once you hit it, the aim menu marks it for that kind of monster for the rest of the run. The undead resist normal blows and have no weak spot at all, while elementals and demons take 1.25× damage from them.
 - **Mana.** Every spell costs MP from a single pool. STRIKE and POWER SMASH are free. MP slowly comes back as you explore and rest, refills when you level up, and can be restored with a potion of mana, a healer, or the MEDITATE spell.
 - **One inventory (`i`).** Everything you carry is on one screen, sorted into Weapons, Armor, Potions, Scrolls and Food, with your spells on top. Pick a line, or press an item's letter to jump straight to it, then choose what to do with it: drink, read, eat, wield, wear or drop. The inventory stays open after you use something, with what happened shown at the bottom. Each use still takes a turn, and the inventory closes by itself if a monster comes into view or attacks. The letters skip `i`, `j`, `k`, `x` and `z`, which already move, choose and close in the inventory. A scroll of identify opens the same screen, showing only what you haven't identified yet. If you back out, you keep the scroll. In battle, BAG opens the same screen with just the potions, scrolls and food. The line at the bottom says what the highlighted thing does, once you know.
 - **Spells.** Rare spell scrolls teach 12 spells, from Fire Bolt and Heal to Chain Lightning (hits every foe), Bewilder (confuses a foe) and Meditate (restores MP). You can know 4 spells at once. To learn a fifth, you forget one, or keep the scroll for later. HEAL, MEDITATE and BARRIER also work outside battle: cast them from the inventory, which lists your spells with their MP costs and what they do.
-- **Physical and magic weapons.** Swords, maces and spears make STRIKE and POWER SMASH hit harder. Wands and staffs barely hurt in melee, but add their power to every attack spell. Enchanting a weapon improves whichever of these it does.
+- **Physical and magic weapons.** Swords, maces and spears make STRIKE and POWER SMASH hit harder, and those blows also get stronger as you level up (+1 damage, plus 1 more every 2 levels). Wands and staffs barely hurt in melee, but add their power to every attack spell. Enchanting a weapon improves whichever of these it does.
 - **Event log.** Every message, including each line of battle text, goes into a scrollable log (`m`, or `M` during a battle), stamped with the turn number and grouped by depth. In a terminal wider than 104 columns or taller than 28 rows, the latest events also stay on screen in a side or bottom panel.
 - **Friendly characters (`&`).** Walk into one to talk. They stroll around the room they're in, but hold still while you stand next to them, and they never block a passage.
   - The **sage** gives advice on depth 1.
@@ -87,13 +87,12 @@ Movement            y k u        Shift + direction    run
 |-----------|---------------------------------------------------|
 | `i`       | inventory: use, wield, wear or drop items, cast spells |
 | `m`       | event log                               |
-| `A`       | toggle auto-skip of easy battles        |
 | `?`       | help                                    |
 | `Q`       | save & quit, or abandon the run         |
 
 You pick things up by walking onto them. To move diagonally with the arrow keys, press two of them together, like `↑` and `←` for up-left.
 
-In menus, arrows or `hjkl` move the cursor, `Enter`/`Space`/`z` choose, and `Esc`/`x` go back. In battle, `S` skips an easy fight and `M` opens the event log.
+In menus, arrows or `hjkl` move the cursor, `Enter`/`Space`/`z` choose, and `Esc`/`x` go back. In battle, `M` opens the event log.
 
 ## Saving
 

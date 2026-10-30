@@ -1,14 +1,13 @@
 """Pokemon-style battles: moves, aimed blows, statuses, bosses and the battle screen."""
 
 import curses
-import math
 import random
 import textwrap
 
 from .constants import DIRS, FINAL_DEPTH, STAIRS
 from .items import Item
 from .monsters import MODIFIERS, MONSTERS, Monster, PARTS, WEAK_SPOT_MULT
-from .moves import EFFECTIVENESS, MOVES, STATUSES, move_notes
+from .moves import DISABLING, EFFECTIVENESS, MOVES, STATUSES, move_notes
 from .player import xp_needed
 from .sprites import SPRITES
 from .text import COLORS, an
@@ -38,29 +37,22 @@ class BattleMixin:
             intro = f'BOSS BATTLE! The {m.name.upper()} blocks the way!'
         else:
             intro = f'A {self.called(m)} {"attacked" if ambush else "appeared"}!'
-        if self.auto_skip and not caught and self.easy_win():
-            if self.skip_battle(quiet=True):
-                self.end_battle(None)
-                return
-            intro = None              # someone joined and the fight got serious
         if self.msgs:
             self.show_pending()       # news from before this fight (like the last one's win)
         self.shown_hp = [self.foe.hp, p.hp]
         self.battle_transition()
-        if intro:
-            self.say(intro)
+        self.say(intro)
         self.flush_battle_msgs()
         if caught:
             self.say(f'{self.name} was caught asleep!')
             self.foes_attack(False)
             self.flush_battle_msgs()
-        skippable = self.easy_win()   # only fights that start out easy can be skipped
         outcome = None
         while self.foes and not self.game_over:
             m = self.foe
             guarding = False
             held = self.player_held()
-            choice = None if held else self.battle_menu(skippable)
+            choice = None if held else self.battle_menu()
             if held:                                          # lost the turn to a status
                 if self.game_over:
                     break
@@ -95,16 +87,13 @@ class BattleMixin:
                     continue
                 lvl = max(f.level for f in self.foes)
                 chance = min(0.8, max(0.1, 0.4 + 0.07 * (p.level - lvl) - 0.1 * (len(self.foes) - 1)))
+                if all(any(s in f.status for s in DISABLING) for f in self.foes):
+                    chance = 1                        # none of them can give chase
                 if random.random() < chance:
                     self.say('Got away safely!')
                     outcome = self.escape()
                     break
                 self.say("Can't escape!")
-            elif choice == 4:                                 # SKIP (easy win)
-                if self.skip_battle():
-                    break
-                skippable = False
-                continue
             elif choice == 5:                                 # event log
                 self.show_log()
                 continue
@@ -165,10 +154,10 @@ class BattleMixin:
             self.say(f'{self.name} turned to face the {self.called(self.foe)}!')
         return not self.foes
 
-    def foes_attack(self, guarding, quiet=False):
+    def foes_attack(self, guarding):
         for f in list(self.foes):
             if f.hp > 0:
-                self.foe_turn(f, guarding, quiet)
+                self.foe_turn(f, guarding)
             if self.game_over:
                 return
 
@@ -187,7 +176,7 @@ class BattleMixin:
         say(f'The {self.called(m)} {text}')
         return True
 
-    def foe_held(self, m, say, quiet=False):
+    def foe_held(self, m, say):
         """Sleep, freezing, paralysis and confusion can cost a monster its turn. True if
         it does."""
         who = f'The {self.called(m)}'
@@ -217,27 +206,35 @@ class BattleMixin:
             elif random.random() < 1 / 3:
                 dmg = max(1, random.randint(*m.dmg) // 2)
                 m.hp = max(0, m.hp - dmg)
-                if not quiet and m is self.foe:
+                if m is self.foe:
                     self.damage_fx('enemy', dmg, 'magenta')
                 say(f'{who} is confused! It hurt itself in its confusion!')
                 return True
         return False
 
-    def status_damage(self, m, say, quiet):
+    def status_damage(self, m, say):
         """Burns and poison hurt a monster at the end of its turn."""
         for status, what in (('burn', 'its burn'), ('poison', 'poison')):
             if status not in m.status or m.hp <= 0:
                 continue
             dmg = max(2, min(m.max_hp // (12 if status == 'burn' else 10), 3 + self.depth // 2))
             m.hp = max(0, m.hp - dmg)
-            if not quiet and m is self.foe:
+            if m is self.foe:
                 self.damage_fx('enemy', dmg, 'red' if status == 'burn' else 'green')
-            elif not quiet:
+            else:
                 self.animate_hp()
             say(f'The {self.called(m)} was hurt by {what}!')
             m.status[status] -= 1
             if m.status[status] <= 0:
                 del m.status[status]
+            if m.hp > 0:
+                self.wake(m, say)
+
+    def wake(self, m, say):
+        """Any damage wakes a sleeping monster."""
+        if 'sleep' in m.status:
+            del m.status['sleep']
+            say(f'The {self.called(m)} woke up!')
 
     def boss_phase(self, m, say):
         """At half HP a boss changes tactics: it calls in minions or flies into a rage."""
@@ -306,6 +303,8 @@ class BattleMixin:
             self.hit_foe(t, info, say, quiet, many=len(targets) > 1, part=part)
 
     def hit_chance(self, m, info, part=None):
+        if 'sleep' in m.status:                   # a sleeping foe can't dodge
+            return 100
         acc = info['acc'] + self.player.level * 2 - m.ac * 3 + (PARTS[part][0] if part else 0)
         return max(0, min(100, acc))
 
@@ -324,7 +323,7 @@ class BattleMixin:
             return
         weak = part is not None and part == m.weak
         if 'mult' in info:
-            dmg = (random.randint(*p.weapon_dmg) + p.str_bonus) * info['mult']
+            dmg = (random.randint(*p.weapon_dmg) + p.str_bonus + p.melee_bonus) * info['mult']
             if part:
                 dmg *= PARTS[part][1] * (WEAK_SPOT_MULT if weak else 1)
         else:
@@ -360,35 +359,31 @@ class BattleMixin:
             self.weak_known.add(m.name)
         if m.hp <= 0:
             return
-        if 'sleep' in m.status and random.random() < 1 / 3:
-            del m.status['sleep']
-            say(f'The {self.called(m)} woke up!')
+        self.wake(m, say)
         if info['type'] == 'fire' and 'freeze' in m.status:
             del m.status['freeze']
             say(f'The fire thawed out the {self.called(m)}!')
         if effect and random.randint(1, 100) <= effect[1]:
             self.inflict(m, effect[0], say)
 
-    def foe_turn(self, m, guarding, quiet=False):
-        say = self.msg if quiet else self.say     # quiet: only status effects get reported later
+    def foe_turn(self, m, guarding):
+        say = self.say
         if 'boss' in m.flags and not m.phased and m.hp <= m.max_hp // 2:
             self.boss_phase(m, say)
-        if not self.foe_held(m, say, quiet):
+        if not self.foe_held(m, say):
             for _ in range(2 if 'enraged' in m.flags else 1):
-                self.foe_attack(m, guarding, quiet)
+                self.foe_attack(m, guarding)
                 if self.game_over:
                     return
-        self.status_damage(m, say, quiet)
+        self.status_damage(m, say)
 
-    def foe_attack(self, m, guarding, quiet=False):
+    def foe_attack(self, m, guarding):
         p = self.player
-        say = self.msg if quiet else self.say
+        say = self.say
         special = random.random() < 0.3
-        if not quiet:
-            self.say(f'The {self.called(m)} used {m.moves[1] if special else m.moves[0]}!')
+        say(f'The {self.called(m)} used {m.moves[1] if special else m.moves[0]}!')
         if random.randint(1, 20) + m.power < 10 + p.ac:
-            if not quiet:
-                self.say('But it missed!' if random.random() < 0.5 else 'It glanced off your armor!')
+            say('But it missed!' if random.random() < 0.5 else 'It glanced off your armor!')
             return
         dmg = random.randint(*m.dmg)
         if special:
@@ -398,8 +393,7 @@ class BattleMixin:
         if p.barrier:
             dmg = max(1, dmg // 2)
         p.hp = max(0, p.hp - dmg)
-        if not quiet:
-            self.damage_fx('player', dmg)
+        self.damage_fx('player', dmg)
         if guarding:
             self.say('Your guard softened the blow!')
         if special and 'poison' in m.flags and p.str > 3:
@@ -419,8 +413,7 @@ class BattleMixin:
             else:
                 chill = random.randint(2, 5)
                 p.hp = max(0, p.hp - chill)
-                if not quiet:
-                    self.damage_fx('player', chill, 'cyan')
+                self.damage_fx('player', chill, 'cyan')
                 say('You were chilled to the bone!')
         if special and 'paralyze' in m.flags and not p.paralyzed:
             p.paralyzed = 1
@@ -431,110 +424,33 @@ class BattleMixin:
         if p.hp <= 0:
             self.die(an(m.name))
 
-    def easy_win(self):
-        """True if STRIKE alone beats every foe even with bad rolls and each one hitting
-        hard every round until it falls."""
-        p = self.player
-        lo = p.weapon_dmg[0]
-        elapsed = worst = 0
-        for m in self.foes:
-            if 'boss' in m.flags:
-                return False
-            eff = EFFECTIVENESS.get(('normal', m.type), 1.0)
-            min_dmg = max(1, int((lo + p.str_bonus) * eff))
-            hit = min(100, MOVES['STRIKE']['acc'] + p.level * 2 - m.ac * 3) / 100
-            if hit <= 0.5:
-                return False
-            worst_hit = (int(m.dmg[1] * 1.5) + (3 if 'drain' in m.flags else 0)
-                         + (5 if 'burn' in m.flags or 'frost' in m.flags else 0))
-            if min_dmg >= m.hp:        # one STRIKE ends it (we still allow for one miss)
-                elapsed += 1
-            else:                      # pessimistic, with misses
-                elapsed += math.ceil(math.ceil(m.hp / min_dmg) / hit) + 1
-            worst += worst_hit * elapsed
-        return worst < p.hp
-
-    def skip_battle(self, quiet=False):
-        """Resolve the fight instantly with STRIKEs, no animations. Returns False if it
-        had to stop because a monster joined and the win was no longer obvious.
-        quiet: report on the map instead of the battle screen (auto-skip)."""
-        p = self.player
-        hp_before, rounds, beaten = p.hp, 0, []
-        finished = True
-        while self.foes and not self.game_over:
-            rounds += 1
-            m = self.foe
-            self.use_move(m, 'STRIKE', quiet=True)
-            if m.hp <= 0:
-                self.drop_foe(m)
-                beaten.append(m)
-                if not self.foes:
-                    break
-            self.foes_attack(False, quiet=True)
-            if self.game_over:
-                break
-            for f in [f for f in self.foes if f.hp <= 0]:     # burns and poison
-                self.drop_foe(f)
-                beaten.append(f)
-            if not self.foes:
-                break
-            n = len(self.foes)
-            self.battle_world_turn()
-            if len(self.foes) > n and not self.easy_win():
-                finished = False
-                break
-        self.shown_hp = [self.foe.hp if self.foe else 0, p.hp]
-        lost = hp_before - p.hp
-        how = f'losing {lost} HP' if lost > 0 else 'unscathed'
-        n_rounds = f'{rounds} round{"s" if rounds != 1 else ""}'
-        names = ' and '.join(m.name for m in beaten)
-        if quiet:
-            self.msg(f'You beat the {names} in {n_rounds}, {how}.' if finished else
-                     f'You fought for {n_rounds}, {how}, but now the battle is getting serious!')
-        elif finished:
-            self.say(f'{self.name} made short work of the wild {names.upper()} in {n_rounds}'
-                     + (f', losing {lost} HP.' if lost > 0 else ' without a scratch!'))
-        else:
-            self.say(f'{self.name} fought for {n_rounds}, {how}... '
-                     'but now the battle is getting serious!')
-        for m in beaten:
-            self.reward(m, quiet)
-        if not quiet:
-            self.flush_battle_msgs()
-        return finished
-
     def drop_foe(self, m):
         self.monsters.remove(m)
         self.foes.remove(m)
         self.fallen = m              # keeps the battle screen drawable after the last foe
 
-    def win_battle(self, m, quiet=False):
-        self.reward(m, quiet)
+    def win_battle(self, m):
+        self.reward(m)
         self.drop_foe(m)
 
-    def reward(self, m, quiet=False):
+    def reward(self, m):
         p = self.player
         gold = random.randint(0, m.xp // 4)
         p.gold += gold
-        if quiet:
-            self.msg(f'+{m.xp} exp' + (f', +{gold} gold.' if gold else '.'))
-            self.gain_xp(m.xp)
-        else:
-            self.say(f'The {self.called(m)} fainted!')
-            self.say(f'{self.name} gained {m.xp} EXP. Points!')
-            self.gain_xp(m.xp)
-            self.flush_battle_msgs()
-            if gold:
-                self.say(f'{self.name} picked up {gold} gold from the battle.')
+        self.say(f'The {self.called(m)} fainted!')
+        self.say(f'{self.name} gained {m.xp} EXP. Points!')
+        self.gain_xp(m.xp)
+        self.flush_battle_msgs()
+        if gold:
+            self.say(f'{self.name} picked up {gold} gold from the battle.')
         if 'boss' in m.flags:
-            (self.msg if quiet else self.say)(BOSSES[m.name]['defeat'])
+            self.say(BOSSES[m.name]['defeat'])
             if self.depth < FINAL_DEPTH:
                 self.tiles[m.y][m.x] = STAIRS
                 it = self.spell_scroll()
                 it.x, it.y = m.x, m.y
                 self.items.append(it)
-                (self.msg if quiet else self.say)(
-                    f'The {m.name.upper()} left behind {self.item_name(it)}!')
+                self.say(f'The {m.name.upper()} left behind {self.item_name(it)}!')
             else:
                 it = Item('amulet')
                 it.x, it.y = m.x, m.y
@@ -543,15 +459,12 @@ class BattleMixin:
             it = self.random_item()
             it.x, it.y = m.x, m.y
             self.items.append(it)
-            (self.msg if quiet else self.say)(f'The {m.name} dropped something!')
+            self.say(f'The {m.name} dropped something!')
 
-    def battle_menu(self, skippable):
+    def battle_menu(self):
         opts = ['FIGHT', 'BAG', 'GUARD', 'RUN']
-        easy = skippable and self.easy_win()
 
         def extra(cur):
-            if easy:
-                self.put(22, 3, '[S] SKIP - easy win', COLORS['green'] | curses.A_BOLD)
             self.put(22, 30, '[M] LOG', COLORS['cyan'])
             self.box(16, 46, 8, 34)
             self.put(16, 46, '┬')
@@ -561,8 +474,6 @@ class BattleMixin:
                 self.put(18 + r * 2, 50 + c * 14, ('▶' if i == cur else ' ') + o,
                          curses.A_BOLD if i == cur else 0)
         keys = {'m': 5, 'M': 5}
-        if easy:
-            keys.update({'s': 4, 'S': 4})
         return self.select(lambda cur: self.draw_battle(['What will', f'{self.name} do?'],
                                                         extra=lambda: extra(cur)), 4, cols=2,
                            keys=keys)
