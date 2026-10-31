@@ -6,16 +6,16 @@ from collections import deque
 
 from .characters import MERCHANT_EVERY, NPC, NPC_CHANCE, NPC_SPAWNS
 from .constants import (
-    CAVE_WALL, CORRIDOR, DIRS, DOOR, FLOOR, FOV_RADIUS, HWALL, MAP_H, MAP_W, OPAQUE, PILLAR,
-    POOL, ROCK, STAIRS, VWALL, WALKABLE, WALLS
+    CAVE_WALL, CORRIDOR, DIRS, DOOR, FINAL_DEPTH, FLOOR, FOV_RADIUS, HWALL, MAP_H, MAP_W, OPAQUE,
+    PILLAR, POOL, ROCK, STAIRS, VWALL, WALKABLE, WALLS
 )
 from .items import (
-    ARMORS, Item, POTIONS, POTION_WEIGHTS, SCROLLS, SCROLL_WEIGHTS, WEAPONS, make_armor,
-    make_weapon
+    ARMORS, Item, POTIONS, POTION_WEIGHTS, SCROLLS, SCROLL_WEIGHTS, SPELL_SLOT_CHANCE,
+    WEAPON_ENCH_EVERY, WEAPONS, make_armor, make_weapon
 )
 from .monsters import MONSTERS, Monster
 from .moves import SPELLS, SPELL_SCROLL_CHANCE
-from .world import Trap, boss_at, floor_env
+from .world import TRAPDOOR_WEIGHT, Trap, boss_at, floor_env
 
 
 WALLED = ('rooms', 'crypts')     # layouts built of walled rooms joined by corridors
@@ -247,8 +247,9 @@ class DungeonMixin:
                  if self.tiles[y][x] in (FLOOR, CORRIDOR) and not self.occupied(x, y)
                  and not self.item_at(x, y) and max(abs(x - p.x), abs(y - p.y)) > 3]
         n = self.depth // 3 + random.randint(0, 2)
+        weights = [TRAPDOOR_WEIGHT if k == 'trapdoor' else 1 for k in kinds]
         for pos in random.sample(spots, min(n, len(spots))):
-            self.traps[pos] = Trap(random.choice(kinds))
+            self.traps[pos] = Trap(random.choices(kinds, weights)[0])
 
     def add_npc(self, kind, room=None, spot=None, box=None):
         """Put a friendly character in a room, or on a spot with the box it may wander in."""
@@ -647,10 +648,23 @@ class DungeonMixin:
             return Item('scroll', random.choices(SCROLLS, SCROLL_WEIGHTS)[0])
         if roll <= 72:
             return Item('food')
-        ench = random.choices([-1, 0, 1, 2], [2, 5, 3, 1])[0]
         if roll <= 86:
-            return make_weapon(random.choice(WEAPONS)[0], ench)
+            return self.random_weapon()
+        ench = random.choices([-1, 0, 1, 2], [2, 5, 3, 1])[0]
         return make_armor(random.choice(ARMORS)[0], ench)
+
+    def random_weapon(self):
+        """A weapon fit for this depth: the deeper, the better the kinds that turn up and the
+        higher their enchantment. A magic one may hold extra spells."""
+        magic = random.random() < 4 / 9
+        kinds = [w[0] for w in WEAPONS if bool(w[3]) == magic]     # weakest first
+        best = (self.depth - 1) / (FINAL_DEPTH - 1) * (len(kinds) - 1)
+        name = random.choices(kinds, [1 / (1 + abs(i - best)) ** 2 for i in range(len(kinds))])[0]
+        ench = random.choices([-1, 0, 1, 2], [2, 5, 3, 1])[0] + self.depth // WEAPON_ENCH_EVERY
+        it = make_weapon(name, ench)
+        if magic and random.random() < SPELL_SLOT_CHANCE:
+            it.slots = random.choices((1, 2, 3), (4, 2, 1))[0]
+        return it
 
     # ------------------------------------------------------------------ fov
     def compute_fov(self):

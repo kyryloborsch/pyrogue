@@ -4,7 +4,7 @@
 # are aimed at a body part (see PARTS); spells cost mana (mp) and roll d6s, plus the
 # player's level and the power of a magic weapon. effect: (status,
 # % chance) put on the target by a hit. heal: d8s healed (plus 2 per level). barrier:
-# rounds of halved damage. drain: share of the damage healed. mana: MP restored (plus 1
+# rounds of a third less damage. drain: share of the damage healed. mana: MP restored (plus 1
 # per 2 levels). all: hits every foe in the battle.
 MOVES = {
     'STRIKE':      {'type': 'normal',  'acc': 95,  'mp': 0, 'mult': 1.0},
@@ -23,7 +23,8 @@ MOVES = {
     'BARRIER':     {'type': 'support', 'acc': 100, 'mp': 4, 'barrier': 4},
     'DRAIN LIFE':  {'type': 'dark',    'acc': 95,  'mp': 5, 'dice': 2, 'drain': 0.5},
 }
-MAX_SPELLS = 4                   # spells known at once, on top of STRIKE and POWER SMASH
+MAX_SPELLS = 3                   # spells known at once, on top of STRIKE and POWER SMASH;
+                                 # some magic weapons hold more (Item.slots)
 FIELD_EFFECTS = ('heal', 'mana', 'barrier')   # spells with these work outside battle too
 # Spells are only learned from rare spell scrolls: (first depth the scroll turns up, price)
 SPELLS = {
@@ -60,7 +61,7 @@ def move_notes(info):
         notes.append(f'weapon hit x{info["mult"]}')
     if info.get('all'):
         notes.append('hits every foe')
-    for key, note in (('heal', 'heals, cures status'), ('barrier', 'halves damage taken'),
+    for key, note in (('heal', 'heals, cures status'), ('barrier', 'blocks 1/3 of damage'),
                       ('mana', 'restores MP'), ('drain', 'heals you as it hits')):
         if key in info:
             notes.append(note)

@@ -338,7 +338,7 @@ class UIMixin:
         '  Walk into a friendly character (&) to talk to them.',
         '  STRIKE and POWER SMASH are aimed. Hit a monster\'s weak spot for extra damage.',
         '  Traps are hidden and each goes off only once. Known traps (^) warn you first.',
-        f'  Spells cost MP and come from spell scrolls. You can know {MAX_SPELLS} at once.',
+        f'  Spells cost MP and come from scrolls. You can know {MAX_SPELLS} (more with some staffs).',
         'SYMBOLS',                    # filled in with the ones found so far (help_lines)
         '',
         '',

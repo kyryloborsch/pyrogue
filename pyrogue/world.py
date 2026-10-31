@@ -2,6 +2,14 @@
 
 from .constants import FINAL_DEPTH
 
+# Trap odds. A trapdoor is TRAPDOOR_WEIGHT times as likely as any other trap in its
+# environment's list. Walking about, you notice a hidden trap next to you with a chance of
+# NOTICE_TRAP (plus NOTICE_TRAP_PER_LEVEL per level, up to NOTICE_TRAP_MAX); a trap you
+# know of, you step over safely AVOID_KNOWN_TRAP of the time.
+TRAPDOOR_WEIGHT = 0.4
+NOTICE_TRAP, NOTICE_TRAP_PER_LEVEL, NOTICE_TRAP_MAX = 0.05, 0.01, 0.2
+AVOID_KNOWN_TRAP = 0.85
+
 # kind: (name, color). Traps are hidden (^ once found).
 TRAPS = {
     'dart':     ('dart trap', 'cyan'),

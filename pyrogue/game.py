@@ -9,13 +9,14 @@ from .actions import ActionsMixin
 from .battle import BattleMixin
 from .characters import BARD_BY
 from .constants import (
-    ARROW_CHORDS, ARROWS, CHORD_DELAY, DIRS, LOG_SIZE, MAP_H, MAP_W, NUMPAD, WALKABLE
+    ARROW_CHORDS, ARROWS, CHORD_DELAY, CORRIDOR, DIRS, DOOR, FLOOR, LOG_SIZE, MAP_H, MAP_W,
+    NUMPAD, WALKABLE
 )
 from .dialogue import TalkMixin
 from .dungeon import DungeonMixin
 from .inventory import ItemsMixin
 from .items import Item, POTIONS, POTION_COLORS, SCROLLS, SYLLABLES, make_armor, make_weapon
-from .monsters import FORGET_DIST, FORGET_TURNS
+from .monsters import FORGET_DIST, FORGET_TURNS, WANDER_OUT_CHANCE
 from .player import Player, xp_needed
 from .ui import UIMixin
 from .world import ENVIRONMENTS
@@ -241,7 +242,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
                     m.alert()
                 else:
                     if m.roaming and random.random() < 0.5:
-                        self.monster_step(m, *random.choice(list(DIRS.values())))
+                        self.wander(m)
                     continue
             if 'boss' in m.flags and near > 1:
                 continue                 # bosses wait in their lair
@@ -264,7 +265,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
                 continue
             if d is None:
                 if random.random() < 0.5:
-                    self.monster_step(m, *random.choice(list(DIRS.values())))
+                    self.wander(m)
                 continue
             steps = [(dx, dy) for dx, dy in DIRS.values()
                      if dist.get((m.x + dx, m.y + dy), 999) < d
@@ -304,6 +305,15 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
                     group.add(c)
                     q.append(c)
         return len(group) == len(free) + 1
+
+    def wander(self, m):
+        """A random step for a monster with nowhere in particular to go. One in a room
+        rarely strays out of it into a corridor, so monsters mostly keep to the rooms."""
+        dx, dy = random.choice(list(DIRS.values()))
+        leaving = (self.tiles[m.y][m.x] == FLOOR
+                   and self.tiles[m.y + dy][m.x + dx] in (DOOR, CORRIDOR))
+        if not leaving or random.random() < WANDER_OUT_CHANCE:
+            self.monster_step(m, dx, dy)
 
     def monster_step(self, m, dx, dy):
         nx, ny = m.x + dx, m.y + dy

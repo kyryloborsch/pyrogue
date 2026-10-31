@@ -13,6 +13,7 @@ MONSTER_DMG_SCALE = 1.2
 FORGET_DIST = 10
 FORGET_TURNS = 6
 NOISE_MEMORY = 20               # extra turns a monster keeps the trail after a loud noise
+WANDER_OUT_CHANCE = 0.1         # chance a wandering monster steps from a room into a corridor
 # Now and then a monster is born different: MODIFIER_CHANCE that it gets one of these, shown
 # before its name in battle. hp, dmg and xp multiply its own; ac, power (to hit) and level
 # (which makes running away harder) are added. Bosses never get one.

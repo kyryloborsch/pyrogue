@@ -38,9 +38,12 @@ class TalkMixin:
 
     def draw_dialog(self, npc, text, more=False, options=None, cur=0):
         self.draw([], refresh=False)
-        self.box(9, 1, 7, 18)
-        for i, line in enumerate(npc.portrait):
-            self.put(10 + i, 3, line, COLORS[npc.color] | curses.A_BOLD)
+        w = max(len(o) for o in options) + 5 if options else 0
+        top = 16 - len(options) - 2 if options else 16
+        if not options or 79 - w > 19:                # a wide menu (a long shop list) covers it
+            self.box(9, 1, 7, 18)
+            for i, line in enumerate(npc.portrait):
+                self.put(10 + i, 3, line, COLORS[npc.color] | curses.A_BOLD)
         self.box(16, 0, 8, 80)
         self.put(16, 3, f' {npc.name} ', COLORS[npc.color] | curses.A_BOLD | curses.A_REVERSE)
         for i, line in enumerate(text):
@@ -48,8 +51,6 @@ class TalkMixin:
         if more:
             self.put(21, 76, '▼', curses.A_BOLD | curses.A_BLINK)
         if options:
-            w = max(len(o) for o in options) + 5
-            top = 16 - len(options) - 2
             self.box(top, 79 - w, len(options) + 2, w)
             for i, o in enumerate(options):
                 self.put(top + 1 + i, 81 - w, ('▶' if i == cur else ' ') + o,
@@ -101,7 +102,7 @@ class TalkMixin:
             elif c == 1:
                 say('You know STRIKE and POWER SMASH. New spells come only from rare spell '
                     f'scrolls, and you can hold {MAX_SPELLS} spells at most. Learn another and '
-                    'you must forget one.')
+                    'you must forget one, unless you carry a staff or wand made to hold more.')
                 say('Swords and maces make your STRIKEs hit harder. Wands and staffs barely '
                     'scratch a foe, but they make every spell you cast hit harder.')
                 say('FIRE scorches beasts and giants, but dragons shrug it off. HOLY light '
@@ -143,8 +144,10 @@ class TalkMixin:
                 if not npc.stock:
                     say("I'm all sold out! Come back... well, never, I suppose.")
                     continue
-                opts = [f'{self.item_name(it, reveal=True)[:38]:<38} {self.price(it):>4}g'
-                        for it in npc.stock] + ['Back']
+                names = [self.item_name(it, reveal=True) for it in npc.stock]
+                width = min(66, max(map(len, names)))
+                opts = [f'{name[:width]:<{width}} {self.price(it):>4}g'
+                        for name, it in zip(names, npc.stock)] + ['Back']
                 i = self.npc_ask(npc, f'Take a look! (You have {p.gold} gold.)', opts)
                 if i == len(npc.stock):
                     continue
@@ -336,7 +339,7 @@ class TalkMixin:
                 opts = [f'{s:<16} {MOVES[s]["type"].upper():<8} {SPELLS[s][1]:>4}g'
                         for s in lessons] + ['Back']
                 i = self.npc_ask(npc, 'Which spell shall I teach you? '
-                                 f'(You know {len(p.spells)} of {MAX_SPELLS}.)', opts)
+                                 f'(You know {len(p.spells)} of {p.spell_slots}.)', opts)
                 if i == len(lessons):
                     continue
                 spell = lessons[i]
@@ -344,7 +347,7 @@ class TalkMixin:
                 if p.gold < cost:
                     say(f'That lesson costs {cost} gold. Come back when your purse is heavier.')
                     continue
-                if len(p.spells) >= MAX_SPELLS:
+                if len(p.spells) >= p.spell_slots:
                     old = self.pick_forget(spell)
                     if not old:
                         say('Make room in that head of yours first, then.')

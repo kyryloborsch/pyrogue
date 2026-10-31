@@ -6,7 +6,9 @@ from .constants import DIRS, DOOR, FINAL_DEPTH, FLOOR, POOL, STAIRS
 from .items import HIDDEN_ITEM_CHANCE, Item
 from .monsters import Monster, NOISE_MEMORY
 from .text import an
-from .world import BOSSES, boss_at
+from .world import (
+    AVOID_KNOWN_TRAP, BOSSES, NOTICE_TRAP, NOTICE_TRAP_MAX, NOTICE_TRAP_PER_LEVEL, boss_at
+)
 
 
 class ActionsMixin:
@@ -61,7 +63,7 @@ class ActionsMixin:
             if self.game_over or (p.x, p.y) != (nx, ny):
                 return self.depth == depth       # a fall to a new level costs no turn
         else:
-            self.find_traps(1, min(0.35, 0.1 + 0.02 * p.level))
+            self.find_traps(1, min(NOTICE_TRAP_MAX, NOTICE_TRAP + NOTICE_TRAP_PER_LEVEL * p.level))
         if self.item_at(nx, ny):
             self.pickup()
         elif self.tiles[ny][nx] == STAIRS:
@@ -90,7 +92,8 @@ class ActionsMixin:
         return True
 
     def find_hidden_item(self):
-        """Searching a room may turn up something tucked away, once per room."""
+        """Searching a room may turn up something tucked away, once per room. It lands on the
+        floor somewhere else in the room, for you to go and pick up."""
         p = self.player
         room = next((r for r in self.rooms if r.x < p.x < r.x + r.w - 1
                      and r.y < p.y < r.y + r.h - 1), None)
@@ -101,17 +104,17 @@ class ActionsMixin:
             it = Item('gold', count=random.randint(10, 20 + self.depth * 6))
         else:
             it = self.random_item()
-        spots = [(x, y) for x, y in [(p.x + dx, p.y + dy) for dx, dy in [(0, 0), *DIRS.values()]]
-                 if self.tiles[y][x] == FLOOR and not self.item_at(x, y)
-                 and not self.monster_at(x, y) and not self.npc_at(x, y)]
+        spots = [(x, y) for x, y in room.cells()
+                 if room.holds(x, y) and self.tiles[y][x] == FLOOR and (x, y) not in self.traps
+                 and not self.occupied(x, y) and not self.item_at(x, y)]
         if not spots:
             return False
         self.searched.add((room.x, room.y))
-        it.x, it.y = spots[0]
+        it.x, it.y = random.choice(spots)
+        it.seen = True
         self.items.append(it)
-        self.msg('You find something hidden behind a loose stone!')
-        if spots[0] == (p.x, p.y):
-            self.pickup()
+        self.msg('You find a loose stone in the wall. Something hidden behind it clatters '
+                 'onto the floor!')
         return True
 
     def hurt(self, dmg, cause):
@@ -124,7 +127,7 @@ class ActionsMixin:
         p = self.player
         careful = trap.found
         trap.found = True
-        if random.random() < (0.6 if careful else min(0.3, 0.05 + 0.02 * p.level)):
+        if random.random() < (AVOID_KNOWN_TRAP if careful else min(0.3, 0.05 + 0.02 * p.level)):
             self.msg(f'You carefully step over the {trap.name}.' if careful else
                      f'You notice {an(trap.name)} just in time and leap aside!')
             return

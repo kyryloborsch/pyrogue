@@ -14,6 +14,9 @@ from .text import COLORS, an
 from .world import BOSSES
 
 
+THROW_ACCURACY = 90             # base chance (%) a thrown potion hits, like a move's acc
+
+
 class BattleMixin:
     """Pokemon-style battles: moves, aimed blows, statuses, bosses and the battle screen."""
 
@@ -390,8 +393,8 @@ class BattleMixin:
             dmg = int(dmg * 1.5)
         if guarding:
             dmg = max(1, dmg // 2)
-        if p.barrier:
-            dmg = max(1, dmg // 2)
+        if p.barrier:                                 # blocks a third of the blow
+            dmg = max(1, dmg - dmg // 3)
         p.hp = max(0, p.hp - dmg)
         self.damage_fx('player', dmg)
         if guarding:
@@ -423,6 +426,56 @@ class BattleMixin:
             say('You became confused!')
         if p.hp <= 0:
             self.die(an(m.name))
+
+    def throw_potion(self, it):
+        """Throw a potion at the foe you're facing. Most potions do something to it, and
+        once you see what, you know the potion. Returns True: it took your turn."""
+        m, p, kind = self.foe, self.player, it.sub
+        self.use_up(it)
+        self.say(f'{self.name} threw {self.item_name(Item("potion", kind))} at the '
+                 f'{self.called(m)}!')
+        if random.randint(1, 100) > self.hit_chance(m, {'acc': THROW_ACCURACY}):
+            self.say('It missed and shattered on the ground!')
+            return True
+        undead = m.type == 'undead'
+        if kind in ('healing', 'extra healing') and undead:       # life burns the dead
+            dmg = (m.max_hp // 2 if kind == 'extra healing'
+                   else sum(random.randint(1, 8) for _ in range(2)) + p.level)
+            m.hp = max(0, m.hp - dmg)
+            self.damage_fx('enemy', dmg, 'yellow')
+            self.say(f'The {self.called(m)} shrieks as the healing light burns it!')
+            self.wake(m, self.say)
+        elif kind in ('healing', 'extra healing'):
+            m.hp = (m.max_hp if kind == 'extra healing'
+                    else min(m.max_hp, m.hp + random.randint(6, 11) + self.depth))
+            self.animate_hp()
+            self.say(f'The {self.called(m)} looks much better. Oops.')
+        elif kind == 'poison':
+            dmg = random.randint(1, 4) + self.depth // 3
+            m.hp = max(0, m.hp - dmg)
+            self.damage_fx('enemy', dmg, 'green')
+            if not self.inflict(m, 'poison', self.say):
+                self.say(f'The {self.called(m)} shrugs off the poison.')
+            self.wake(m, self.say)
+        elif kind == 'confusion':
+            if not self.inflict(m, 'confuse', self.say):
+                self.say(f'The {self.called(m)} is not fooled.')
+        elif kind == 'strength':
+            m.dmg = (m.dmg[0] + 1, m.dmg[1] + 2)
+            self.say(f'The {self.called(m)} bulges with new strength!')
+        elif kind == 'raise level':
+            m.level += 1
+            m.max_hp += max(2, m.max_hp // 10)
+            m.hp = m.max_hp
+            self.animate_hp()
+            self.say(f'The {self.called(m)} looks more experienced!')
+        else:                                                      # mana
+            self.say('It splashes all over, but nothing seems to happen.')
+            return True
+        if kind not in self.known:
+            self.known.add(kind)
+            self.say(f'That was {self.item_name(Item("potion", kind))}!')
+        return True
 
     def drop_foe(self, m):
         self.monsters.remove(m)
@@ -480,13 +533,14 @@ class BattleMixin:
 
     def fight_menu(self):
         p = self.player
-        moves = p.moves
+        moves = p.battle_moves
+        gap = 2 if len(moves) <= 6 else 1             # up to 8 moves with a staff full of spells
 
         def extra(cur):
             self.box(16, 0, 8, 56)
             for i, name in enumerate(moves):
                 r, c = divmod(i, 2)
-                y, x = 17 + r * 2, 3 + c * 26
+                y, x = 17 + r * gap, 3 + c * 26
                 self.put(y, x, ('▶' if i == cur else ' ') + name, curses.A_BOLD if i == cur else 0)
                 cost = MOVES[name]['mp']
                 if cost:

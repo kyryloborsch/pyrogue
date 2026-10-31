@@ -6,6 +6,10 @@ WEAPONS = [('dagger', 1, 4, 0), ('spear', 2, 6, 0), ('mace', 2, 8, 0),
            ('long sword', 3, 10, 0), ('two-handed sword', 4, 14, 0),
            ('wand', 1, 2, 2), ('oak staff', 1, 4, 3), ('crystal rod', 1, 3, 5),
            ('runed staff', 2, 5, 7)]
+# Deeper down, better kinds of weapon turn up more often and come better enchanted (+1 per
+# WEAPON_ENCH_EVERY depths). SPELL_SLOT_CHANCE of the magic ones found hold 1-3 extra spells.
+WEAPON_ENCH_EVERY = 5
+SPELL_SLOT_CHANCE = 0.5
 ARMORS = [('leather armor', 2), ('studded leather', 3), ('ring mail', 3),
           ('scale mail', 4), ('chain mail', 5), ('splint mail', 6), ('plate mail', 7)]
 POTIONS = ['healing', 'extra healing', 'mana', 'strength', 'poison', 'confusion', 'raise level']
@@ -51,6 +55,8 @@ HIDDEN_ITEM_CHANCE = 0.06        # chance a search turns up a hidden item (once 
 
 
 class Item:
+    slots = 0                        # extra spells a magic weapon lets you hold
+
     def __init__(self, kind, sub=None, count=1, ench=0):
         self.kind, self.sub, self.count, self.ench = kind, sub, count, ench
         self.x = self.y = 0

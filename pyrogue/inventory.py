@@ -9,7 +9,7 @@ from .constants import (
 )
 from .items import CATEGORIES, ITEM_NOTES, Item, POTION_PRICES, SCROLL_PRICES, STACKABLE
 from .monsters import NOISE_MEMORY
-from .moves import MAX_SPELLS, MOVES, SPELLS, field_spell, move_notes
+from .moves import MOVES, SPELLS, field_spell, move_notes
 from .player import xp_needed
 from .text import COLORS, an
 
@@ -25,13 +25,15 @@ class ItemsMixin:
             return 'the Amulet of Yendor'
         if it.kind == 'food':
             return 'a food ration' if n == 1 else f'{n} food rations'
-        # enchantment is already counted in the stats shown, so it isn't listed separately
+        # short tags; enchantment is already counted in them, and the note under the
+        # inventory spells them out
         if it.kind == 'weapon' and it.magic:
-            return an(f'{it.sub} (hits {it.dmg[0]}-{it.dmg[1]}, spells +{it.magic + it.ench})')
+            slots = f', {it.slots} slot{"s" if it.slots > 1 else ""}' if it.slots else ''
+            return an(f'{it.sub} (spell +{it.magic + it.ench}{slots})')
         if it.kind == 'weapon':
-            return an(f'{it.sub} (hits {it.dmg[0] + it.ench}-{it.dmg[1] + it.ench})')
-        if it.kind == 'armor':
-            return an(f'{it.sub} (defense {it.ac + it.ench})')
+            return an(f'{it.sub} (dmg {it.dmg[0] + it.ench}-{it.dmg[1] + it.ench})')
+        if it.kind == 'armor':                     # 'plate mail', not 'a plate mail'
+            return f'{it.sub} (def {it.ac + it.ench})'
         noun = it.kind if n == 1 else it.kind + 's'
         if it.sub in SPELLS:                       # spell scrolls are always recognized
             base = f'spell {noun} of {it.sub}'
@@ -61,7 +63,7 @@ class ItemsMixin:
         elif it.kind == 'food':
             base = 15
         elif it.kind == 'weapon':
-            base = (it.dmg[0] + it.dmg[1]) * 6 + it.magic * 25 + it.ench * 30
+            base = (it.dmg[0] + it.dmg[1]) * 6 + it.magic * 25 + it.ench * 30 + it.slots * 60
         else:
             base = it.ac * 18 + it.ench * 30
         return max(5, base)
@@ -125,13 +127,16 @@ class ItemsMixin:
         p = self.player
         rows = []
         if not in_battle and not only and p.spells:
-            rows.append((f'SPELLS   MP {p.mp}/{p.max_mp}', None, 'blue'))
+            rows.append((f'SPELLS   MP {p.mp}/{p.max_mp}   {len(p.spells)}/{p.spell_slots} known',
+                         None, 'blue'))
             for name in p.spells:
                 info = MOVES[name]
                 cost = f'{info["mp"]} MP' if info['mp'] else 'free'
                 where = cost if field_spell(name) else 'battle only'
+                if name not in p.ready_spells:
+                    where = 'sealed'
                 rows.append((f'   {name:<17} {where}', ('spell', name),
-                             None if field_spell(name) else 'dim'))
+                             None if field_spell(name) and where != 'sealed' else 'dim'))
         for kind, heading in CATEGORIES.items():
             items = [it for it in self.pack_order() if it.kind == kind and (not only or only(it))]
             if in_battle and kind == 'armor':      # no changing armor mid-fight
@@ -140,25 +145,34 @@ class ItemsMixin:
                 rows.append((heading, None, 'yellow'))
                 for it in items:
                     text = f'{self.letter(it)}) {self.describe(it)}'
-                    if tag:
-                        text = f'{text[:56]:<57}{tag(it):>13}'
+                    if tag:                        # the tag sits at the right edge
+                        t = tag(it)
+                        room = 71 - len(t)
+                        text = f'{text if len(text) <= room else text[:room - 1] + "…":<{room}} {t}'
                     rows.append((text, ('item', it), None))
         return rows
 
     def note(self, kind, obj):
         """The line under the inventory about the thing the cursor is on."""
         p = self.player
+        if kind == 'spell' and obj not in p.ready_spells:
+            return f'Sealed: you need to wield a weapon that holds more spells to cast {obj}.'
         if kind == 'spell':
             notes = ', '.join(move_notes(MOVES[obj])).capitalize()
             return f'{notes}.' if field_spell(obj) else f'{notes}. Cast it in battle (FIGHT).'
         it = obj
         if it.kind == 'weapon':
+            if it.magic and it.slots:
+                return (f'Magic weapon: +{it.magic + it.ench} to attack spells, and while you '
+                        f'wield it you can hold {it.slots} more spell{"s" if it.slots > 1 else ""}.')
             if it.magic:
                 return (f'Magic weapon: adds +{it.magic + it.ench} to every attack spell, '
-                        'but barely hurts in melee.')
-            return 'Physical weapon: STRIKE and POWER SMASH hit harder with it.'
+                        f'but barely hurts in melee ({it.dmg[0]}-{it.dmg[1]}).')
+            return (f'Physical weapon: STRIKE and POWER SMASH hit for {it.dmg[0] + it.ench}-'
+                    f'{it.dmg[1] + it.ench} with it, before your strength and level.')
         if it.kind == 'armor':
-            return f'Armor: each point of defense makes you harder to hit. You have {p.ac}.'
+            return (f'Armor: gives {it.ac + it.ench} defense (def). Each point makes you harder '
+                    f'to hit. You have {p.ac}.')
         if it.kind == 'food':
             return 'Eat when you get hungry. Starving hurts!'
         if it.sub in SPELLS:
@@ -176,6 +190,8 @@ class ItemsMixin:
         acts = [use]
         if it is self.player.weapon or it is self.player.armor:
             acts = []
+        if in_battle and it.kind == 'potion':
+            acts.append(('Throw', self.throw_potion))
         if not in_battle:
             acts.append(('Drop', self.drop_item))
         return acts
@@ -243,12 +259,13 @@ class ItemsMixin:
             elif sel >= top + height:
                 top = sel - height + 1
             view = (rows, sel, top, height, title)
-            if shown and len(shown) > 78:             # page through a long message
+            if shown and len(textwrap.wrap(shown, 78)) > 2:   # page a long message, 2 lines a page
                 lines = textwrap.wrap(shown, 69)
-                for line in lines[:-1]:
-                    self.draw_inventory(*view, footer, f'{line} --More--')
+                while len(lines) > 2:
+                    self.draw_inventory(*view, footer, [lines[0], f'{lines[1]} --More--'])
                     self.wait_key()
-                shown = lines[-1]
+                    lines = lines[2:]
+                shown = ' '.join(lines)
             self.draw_inventory(*view, footer, shown or note or self.note(*rows[sel][1]))
             shown = None
             if jump:
@@ -276,6 +293,8 @@ class ItemsMixin:
         """Cast a spell outside battle. Returns (turn spent, note to show)."""
         p = self.player
         cost = MOVES[name]['mp']
+        if name not in p.ready_spells:
+            return False, f'{name} is sealed until you wield a weapon that holds it.'
         if not field_spell(name):
             return False, f'{name} only works in battle.'
         if cost > p.mp:
@@ -298,6 +317,7 @@ class ItemsMixin:
         return acts[i][1](it), None
 
     def draw_inventory(self, rows, sel, top, height, title, footer, note, actions=None):
+        """note: the text under the list (up to two lines), or a list of its lines."""
         p = self.player
         self.scr.erase()
         self.put(0, 0, title, curses.A_BOLD)
@@ -318,13 +338,15 @@ class ItemsMixin:
             self.put(2 + height - 1, 76, '▼', COLORS['blue'])
         if actions:
             labels, c = actions
-            y = min(2 + sel - top, 22 - len(labels) - 2)     # beside the item, on screen
+            y = min(2 + sel - top, 21 - len(labels) - 2)     # beside the item, above the note
             w = max(16, max(map(len, labels)) + 6)
             self.box(y, 76 - w, len(labels) + 2, w)
             for j, label in enumerate(labels):
                 self.put(y + 1 + j, 78 - w, ('▶ ' if j == c else '  ') + label,
                          curses.A_BOLD if j == c else 0)
-        self.put_rich(22, 1, note[:78], COLORS['cyan'])
+        lines = note if isinstance(note, list) else textwrap.wrap(note, 78)[:2]
+        for i, line in enumerate(lines):
+            self.put_rich(23 - len(lines) + i, 1, line, COLORS['cyan'])
         self.put(23, 0, footer.ljust(80)[:79], curses.A_REVERSE)
         self.scr.refresh()
 
@@ -364,7 +386,7 @@ class ItemsMixin:
         return True
 
     def learn_spell(self, it):
-        """Read a spell scroll. With MAX_SPELLS known, the player must forget one first.
+        """Read a spell scroll. With every spell slot full, the player must forget one first.
         Returns False if the player kept the scroll after all."""
         p = self.player
         spell = it.sub
@@ -373,7 +395,7 @@ class ItemsMixin:
             p.restore_mp()
             self.msg(f'You already know {spell}. The scroll crumbles away, restoring your mana.')
             return True
-        if len(p.spells) >= MAX_SPELLS:
+        if len(p.spells) >= p.spell_slots:
             old = self.pick_forget(spell)
             if not old:
                 self.msg(f'You put the spell scroll of {spell} away for now.')
@@ -390,7 +412,7 @@ class ItemsMixin:
         """Ask which known spell to forget for `spell`. None keeps things as they are."""
         options = self.player.spells
         i = self.select(lambda c: self.draw_spells(
-            f'You know {MAX_SPELLS} spells already! Forget which one for {spell}?',
+            f'You know {len(options)} spells already! Forget which one for {spell}?',
             options, c, f'Enter: forget it   Esc: keep the scroll of {spell} for later'),
             len(options))
         return None if i is None else options[i]

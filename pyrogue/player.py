@@ -1,6 +1,6 @@
 """The player character."""
 
-from .moves import SPELLS
+from .moves import MAX_SPELLS, SPELLS
 
 
 def xp_needed(level):
@@ -26,14 +26,16 @@ class Player:
         self.burn = 0                # turns left burning (hurts every turn)
         self.frozen = 0              # turns left frozen solid (can't act)
         self.paralyzed = 0           # 1 while paralyzed: the next move is lost
-        self.barrier = 0             # turns left of halved damage
+        self.barrier = 0             # turns left of a third less damage
         self.regen = 0
         self.mp = self.max_mp = 10   # mana that spells cost
         self.mana_regen = 0
-        self.moves = ['STRIKE', 'POWER SMASH']    # plus up to MAX_SPELLS spells
+        self.moves = ['STRIKE', 'POWER SMASH']    # plus the spells, in the order learned
 
     def cure(self):
+        """Clear every ailment, poison too: the strength it sapped comes back."""
         self.confused = self.burn = self.frozen = self.paralyzed = 0
+        self.str = max(self.str, self.max_str)
 
     @property
     def ac(self):
@@ -46,6 +48,21 @@ class Player:
     @property
     def spells(self):
         return [m for m in self.moves if m in SPELLS]
+
+    @property
+    def spell_slots(self):
+        """How many spells you can hold: MAX_SPELLS, plus any the wielded weapon holds."""
+        return MAX_SPELLS + (self.weapon.slots if self.weapon else 0)
+
+    @property
+    def ready_spells(self):
+        """The spells you can cast. Those learned last, past your slots, stay sealed until
+        you wield a weapon that holds them again."""
+        return self.spells[:self.spell_slots]
+
+    @property
+    def battle_moves(self):
+        return [m for m in self.moves if m not in SPELLS] + self.ready_spells
 
     @property
     def weapon_dmg(self):
