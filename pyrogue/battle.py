@@ -16,6 +16,7 @@ from .world import BOSSES
 
 THROW_ACCURACY = 90             # base chance (%) a thrown potion hits, like a move's acc
 HELD_DAMAGE = 2 / 3             # share of a blow you take on a turn lost to a status
+SPLASH_DAMAGE = 0.6             # share of a blow each hero takes from a splash attack (co-op)
 
 
 class BattleMixin:
@@ -383,17 +384,25 @@ class BattleMixin:
                     return
         self.status_damage(m, say)
 
-    def foe_attack(self, m, guarding, held=False):
+    def foe_attack(self, m, guarding, held=False, splash=False):
+        """splash: this hero's share of a special move that hits the whole party (co-op). It
+        has been announced already, and lands softer (SPLASH_DAMAGE)."""
         p = self.player
         say = self.say
-        special = random.random() < 0.3
-        say(f'The {self.called(m)} used {m.moves[1] if special else m.moves[0]}!')
+        special = splash or random.random() < 0.3
+        if not splash:
+            say(f'The {self.called(m)} used {m.moves[1] if special else m.moves[0]}!')
         if random.randint(1, 20) + m.power < 10 + p.ac:
-            say('But it missed!' if random.random() < 0.5 else 'It glanced off your armor!')
+            if splash:
+                say(f'{self.name} dodged it!')
+            else:
+                say('But it missed!' if random.random() < 0.5 else 'It glanced off your armor!')
             return
         dmg = random.randint(*m.dmg)
         if special:
             dmg = int(dmg * 1.5)
+        if splash:
+            dmg = max(1, round(dmg * SPLASH_DAMAGE))
         if guarding:
             dmg = max(1, dmg // 2)
         if held:
@@ -402,6 +411,8 @@ class BattleMixin:
             dmg = max(1, dmg - dmg // 3)
         p.hp = max(0, p.hp - dmg)
         self.damage_fx('player', dmg)
+        if splash:
+            say(f'{self.name} took {dmg} damage!')
         if guarding:
             self.say('Your guard softened the blow!')
         if special and 'poison' in m.flags and p.str > 3:

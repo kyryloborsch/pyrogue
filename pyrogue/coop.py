@@ -22,6 +22,13 @@ from .moves import DISABLING, MOVES
 from .world import BOSSES
 
 HERO_COLORS = ['cyan', 'magenta', 'green', 'red']   # how each hero looks to the others
+# monsters are tougher for a bigger party: each hero past the first adds this much
+HP_PER_HERO = 0.6                # of their HP
+DMG_PER_HERO = 0.2               # of their damage
+POWER_PER_HERO = 1               # to their chance to hit
+# a foe fighting two or more heroes may strike them all at once with its special move
+SPLASH_CHANCE = 0.25
+BOSS_SPLASH_CHANCE = 0.4
 
 
 class Stop(Exception):
@@ -45,6 +52,18 @@ class CoopGame(Game):
         for h, color in zip(heroes, HERO_COLORS):
             h.color = color
         self.start(heroes, seed)
+        self.toughen()
+
+    def toughen(self):
+        """Make the monsters that are new on the level a match for the party."""
+        n = max(1, sum(1 for h in self.heroes if h.state in ('active', 'stairs')))
+        for m in self.monsters:
+            if m.party:
+                continue
+            m.party = n
+            m.hp = m.max_hp = round(m.max_hp * (1 + HP_PER_HERO * (n - 1)))
+            m.dmg = tuple(max(1, round(d * (1 + DMG_PER_HERO * (n - 1)))) for d in m.dmg)
+            m.power += POWER_PER_HERO * (n - 1)
 
     def pause(self, ms):
         """Hold an animation frame, letting the others play meanwhile."""
@@ -95,6 +114,7 @@ class CoopGame(Game):
         """The monsters and the friendly characters take a step."""
         busy, self.busy = self.busy, True
         try:
+            self.toughen()                       # anything an alarm or a boss called in
             self.monsters_act()
             self.npcs_act()
             self.turn += 1
@@ -218,6 +238,7 @@ class CoopGame(Game):
                 self.new_level()
             for h in heroes:
                 h.state, h.done = 'active', False
+            self.toughen()
             self.place_party()
             for h in heroes:
                 with self.as_hero(h):
@@ -428,12 +449,26 @@ class CoopGame(Game):
                 f.stun = 4
                 f.status = {}
 
+    def foe_attack(self, m, guarding, held=False, splash=False):
+        """Against two or more heroes, a foe sometimes uses its special move on them all."""
+        b = self.hero.battle
+        heroes = [h for h in b.heroes if h.state == 'active'] if b else []
+        chance = BOSS_SPLASH_CHANCE if 'boss' in m.flags else SPLASH_CHANCE
+        if splash or len(heroes) < 2 or random.random() >= chance:
+            return super().foe_attack(m, guarding, held, splash)
+        self.say(f'The {self.called(m)} used {m.moves[1]}! It hits the whole party!')
+        for h in heroes:
+            if h.state == 'active':
+                with self.as_hero(h):
+                    super().foe_attack(m, h.guarding, h.held, splash=True)
+
     def foe_joined(self, h, m):
         with self.as_hero(h):
             self.say(f'A {self.called(m)} joined the battle!')
 
     def battle_round(self, b):
         """The foes' turn in a battle, once its heroes have acted: each strikes one of them."""
+        self.toughen()
         for f in list(b.foes):
             heroes = [h for h in b.heroes if h.state == 'active']
             if not heroes:

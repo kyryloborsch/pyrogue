@@ -136,6 +136,7 @@ WEAK_SPOTS = {name: part for name, part in WEAK_SPOTS.items()
 
 class Monster:
     mod = None                       # its MODIFIERS key, if it has one
+    party = 0                        # co-op: how many heroes it was toughened for (0: not yet)
 
     def __init__(self, tpl, x, y, depth=0):
         ch, name, hp, ac, dmg, xp, lo, _hi, color, flags = tpl

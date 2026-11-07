@@ -8,6 +8,7 @@ Players connect straight to the host over TCP, or through the relay (a Cloudflar
 see relay/) when the host can't open a port: then the host and every player connect out to
 the relay with a WebSocket, and it passes the messages along."""
 
+import base64
 import curses
 import json
 import queue
@@ -15,6 +16,7 @@ import secrets
 import socket
 import threading
 import time
+import zlib
 from collections import deque
 from urllib.parse import urlsplit, urlunsplit
 
@@ -25,11 +27,12 @@ from .hero import Hero
 
 DEFAULT_PORT = 7878
 DEFAULT_RELAY = 'https://pyrogue-relay.pyrogue.workers.dev'   # the game's own relay (relay/)
-PROTOCOL = 1                     # bump when the messages or the game change in a way that
+PROTOCOL = 2                     # bump when the messages or the game change in a way that
                                  # host and players must agree on
 MAX_PLAYERS = 4
 MAX_LINE = 1 << 16               # longest message accepted, in bytes
-RELAY_GAP = 0.03                 # seconds between screens sent through the relay (its quota)
+RELAY_GAP = 0.03                 # seconds between messages sent through the relay (its quota)
+SQUEEZE_OVER = 1024              # messages longer than this (in bytes) are sent compressed
 CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # room codes skip look-alikes (0/O, 1/I)
 
 # attributes travel by meaning, so terminals with different curses libraries agree
@@ -225,7 +228,11 @@ class Relay:
 class VirtualScreen:
     """Stands in for a curses window on the host: the game draws on it, and it sends what it
     shows to the player's terminal. Its getch() waits for that player's keys, and lets the
-    other players play meanwhile, so it must be called with cv held."""
+    other players play meanwhile, so it must be called with cv held.
+
+    Animations are played by the player's terminal, not here: pause() doesn't wait, it just
+    tells the terminal how long to hold the frame before the next. The frames go out in order,
+    as many as are ready in one message, with only the rows that changed."""
 
     def __init__(self, link, cv, rows=24, cols=80):
         self.link, self.cv = link, cv
@@ -237,7 +244,10 @@ class VirtualScreen:
         self.stale = False           # the game changed since this screen was drawn
         self.refreshable = False     # getch() should return KEY_RESIZE when it goes stale
         self.blank()
-        self.frame, self.sent = None, None
+        self.shown = None            # (rows, cols, lines) as last queued for the terminal
+        self.wait = 0                # ms the terminal should hold the last frame
+        self.outbox = []             # frames to send: {'wait', 'rows', 'size'}
+        self.olock = threading.Lock()
         self.frame_ready = threading.Event()
         threading.Thread(target=self.reader, daemon=True).start()
         threading.Thread(target=self.writer, daemon=True).start()
@@ -271,8 +281,20 @@ class VirtualScreen:
         self.delay = ms
 
     def refresh(self):
-        frame = [(''.join(c), tuple(a)) for c, a in zip(self.chars, self.attrs)]
-        self.frame = (self.rows, self.cols, frame)
+        lines = [(''.join(c), tuple(a)) for c, a in zip(self.chars, self.attrs)]
+        size = (self.rows, self.cols)
+        old = self.shown[2] if self.shown and self.shown[:2] == size else None
+        rows = {y: runs(*line) for y, line in enumerate(lines) if old is None or old[y] != line}
+        self.shown = (*size, lines)
+        if not rows and not self.wait:
+            return
+        with self.olock:
+            last = self.outbox[-1] if self.outbox else None
+            if last and not self.wait and last['size'] == list(size):
+                last['rows'].update(rows)            # nothing to see in between: one frame
+            else:
+                self.outbox.append({'wait': self.wait, 'rows': rows, 'size': list(size)})
+            self.wait = 0
         self.frame_ready.set()
 
     def getch(self):
@@ -300,13 +322,8 @@ class VirtualScreen:
             raise Stop()
 
     def pause(self, ms):
-        """Wait a moment, letting the other players play (cv held)."""
-        deadline = time.monotonic() + ms / 1000
-        while True:
-            left = deadline - time.monotonic()
-            if left <= 0:
-                return
-            self.cv.wait(left)
+        """Hold the frame on screen for a moment: the player's terminal does the waiting."""
+        self.wait += ms
 
     def flush(self):
         self.keys.clear()
@@ -344,6 +361,7 @@ class VirtualScreen:
                         continue
                     self.rows, self.cols = fit(*size)
                     self.blank()
+                    self.shown = None
                     self.keys.append(curses.KEY_RESIZE)
                 self.cv.notify_all()
 
@@ -360,25 +378,33 @@ class VirtualScreen:
         while True:
             self.frame_ready.wait()
             self.frame_ready.clear()
-            frame = self.frame
-            if frame and frame != self.sent:
-                self.send_frame(frame)
-                time.sleep(self.link.gap)
+            with self.olock:
+                frames, self.outbox = self.outbox, []
+            if frames:
+                self.link.send(squeeze({'t': 'frames', 'list': frames}))
+                time.sleep(self.link.gap)           # what's drawn meanwhile goes out together
             if self.closed:
                 if getattr(self, 'goodbye', None) is not None:
                     self.link.send({'t': 'bye', 'text': self.goodbye})
                 self.link.close()
                 return
 
-    def send_frame(self, frame):
-        rows, cols, lines = frame
-        old = self.sent[2] if self.sent and self.sent[:2] == (rows, cols) else None
-        changed = {}
-        for y, (text, attrs) in enumerate(lines):
-            if old is None or y >= len(old) or old[y] != (text, attrs):
-                changed[y] = runs(text, attrs)
-        self.sent = frame
-        self.link.send({'t': 'frame', 'rows': changed, 'size': [rows, cols]})
+
+def squeeze(msg):
+    """A long message, compressed (the frames of a battle animation shrink a lot)."""
+    data = json.dumps(msg, separators=(',', ':')).encode()
+    if len(data) <= SQUEEZE_OVER:
+        return msg
+    return {'t': 'z', 'd': base64.b64encode(zlib.compress(data)).decode()}
+
+
+def unsqueeze(msg):
+    if msg and msg.get('t') == 'z':
+        try:
+            msg = json.loads(zlib.decompress(base64.b64decode(msg.get('d', ''))))
+        except (ValueError, zlib.error):
+            return None
+    return msg if isinstance(msg, dict) else None
 
 
 def fit(rows, cols):
@@ -606,6 +632,8 @@ class Client:
         self.scr, self.connect, self.where, self.name = scr, connect, where, name
         self.inbox = deque()
         self.lock = threading.Lock()
+        self.frames = deque()        # frames to show, each after its wait
+        self.drawn = 0               # when the last frame was shown (time.monotonic)
 
     def run(self):
         """Play until the game ends or the connection drops. Returns a message for the
@@ -621,9 +649,10 @@ class Client:
         link.send({'t': 'hello', 'name': self.name, 'version': PROTOCOL,
                    'rows': rows, 'cols': cols})
         threading.Thread(target=self.read, args=(link,), daemon=True).start()
-        self.scr.timeout(30)
+        goodbye = None
         try:
             while True:
+                self.scr.timeout(self.next_frame_in())
                 k = self.scr.getch()
                 if k == curses.KEY_RESIZE:
                     self.scr.clear()
@@ -633,21 +662,46 @@ class Client:
                     link.send({'t': 'key', 'k': k})
                 elif k in KEY_NAMES:
                     link.send({'t': 'key', 'n': KEY_NAMES[k]})
-                while self.inbox:
+                while self.inbox and goodbye is None:
                     with self.lock:
                         msg = self.inbox.popleft()
                     if msg is None:
-                        return 'The connection to the game was lost.'
-                    if msg.get('t') == 'bye':
-                        return msg.get('text')
-                    if msg.get('t') == 'frame':
-                        self.draw(msg)
+                        goodbye = 'The connection to the game was lost.'
+                    elif msg.get('t') == 'bye':
+                        goodbye = msg.get('text') or ''
+                    elif msg.get('t') == 'frames':
+                        self.frames.extend(f for f in msg.get('list', []) if isinstance(f, dict))
+                self.play()
+                if goodbye is not None and not self.frames:      # let the last frames show
+                    return goodbye or None
         finally:
             link.close()
+
+    def next_frame_in(self):
+        """How long getch() may wait (ms) before the next frame is due."""
+        if not self.frames:
+            return 30
+        due = self.drawn + self.frames[0].get('wait', 0) / 1000
+        return max(0, min(30, int((due - time.monotonic()) * 1000)))
+
+    def play(self):
+        """Show the frames whose time has come: animations play here, at their own pace,
+        however the messages happened to arrive."""
+        shown = False
+        while self.frames:
+            now = time.monotonic()
+            if now < self.drawn + self.frames[0].get('wait', 0) / 1000:
+                break
+            self.draw(self.frames.popleft())
+            self.drawn, shown = now, True
+        if shown:
+            self.scr.refresh()
 
     def read(self, link):
         while True:
             msg = link.recv()
+            if msg is not None and msg.get('t') == 'z':
+                msg = unsqueeze(msg)
             with self.lock:
                 self.inbox.append(msg)
             if msg is None or msg.get('t') == 'bye':
@@ -668,4 +722,3 @@ class Client:
                 except curses.error:
                     pass
                 x += len(text)
-        self.scr.refresh()
