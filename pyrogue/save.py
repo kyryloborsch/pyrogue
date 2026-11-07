@@ -24,7 +24,7 @@ def save_path():
 
 def snapshot(game):
     """The whole game (but not the screen), with the dice, as bytes ready to write."""
-    state = {k: v for k, v in vars(game).items() if k not in ('scr', 'snapshot')}
+    state = {k: v for k, v in vars(game).items() if k not in ('snapshot', '_ctx')}
     return pickle.dumps({'version': SAVE_VERSION, 'state': state, 'random': random.getstate()})
 
 
@@ -36,6 +36,14 @@ def write(data):
     with open(tmp, 'wb') as f:
         f.write(data)
     os.replace(tmp, path)
+
+
+def summary(state):
+    """(name, level, depth) of a saved game, for the title screen."""
+    hero = state['heroes'][0] if 'heroes' in state else None
+    name = hero.name if hero else state['name']
+    player = hero.player if hero else state['player']
+    return name, player.level, state['depth']
 
 
 def exists():

@@ -196,9 +196,13 @@ class ActionsMixin:
                 self.msg('You wake up.')
         elif kind == 'trapdoor':
             self.msg('A trapdoor opens beneath you! You fall through...')
-            self.new_level()
-            self.hurt(random.randint(2, 8) + self.depth // 3, 'a fall')
-            self.arrive()
+            self.fall_through()
+
+    def fall_through(self):
+        """Drop through a trapdoor to the next depth."""
+        self.new_level()
+        self.hurt(random.randint(2, 8) + self.depth // 3, 'a fall')
+        self.arrive()
 
     def rest(self):
         p = self.player

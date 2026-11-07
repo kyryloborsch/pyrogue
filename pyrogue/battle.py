@@ -497,9 +497,7 @@ class BattleMixin:
         gold = random.randint(0, m.xp // 4)
         p.gold += gold
         self.say(f'The {self.called(m)} fainted!')
-        self.say(f'{self.name} gained {m.xp} EXP. Points!')
-        self.gain_xp(m.xp)
-        self.flush_battle_msgs()
+        self.share_xp(m)
         if gold:
             self.say(f'{self.name} picked up {gold} gold from the battle.')
         if 'boss' in m.flags:
@@ -519,6 +517,12 @@ class BattleMixin:
             it.x, it.y = m.x, m.y
             self.items.append(it)
             self.say(f'The {m.name} dropped something!')
+
+    def share_xp(self, m):
+        """Everyone who fought the monster gains its EXP."""
+        self.say(f'{self.name} gained {m.xp} EXP. Points!')
+        self.gain_xp(m.xp)
+        self.flush_battle_msgs()
 
     def battle_menu(self):
         opts = ['FIGHT', 'BAG', 'GUARD', 'RUN']
@@ -596,9 +600,9 @@ class BattleMixin:
             self.put(y, 0, '▓' * (79 if y == 23 else 80), COLORS['white'])
             if y % 2:
                 self.scr.refresh()
-                curses.napms(12)
+                self.pause(12)
         self.draw_battle()
-        curses.napms(150)
+        self.pause(150)
 
     # how a hit looks: frames of (sideways jolt, sprite color, spark drawn over the sprite)
     SHAKE = [(2, 'white', '*'), (-2, None, '+'), (1, 'white', '*'), (-1, None, ''), (0, None, '')]
@@ -611,13 +615,13 @@ class BattleMixin:
         for dx, tint, spark in self.SHAKE:
             self.fx = {'who': who, 'dx': dx, 'tint': tint or color, 'spark': spark}
             self.draw_battle()
-            curses.napms(45)
+            self.pause(45)
         self.fx = {'who': who, 'text': f'-{dmg}' + (f' {note}' if note else ''), 'color': color,
                    'rise': 0}
         self.animate_hp()
         while self.fx['rise'] < 8:          # let the number finish floating up
             self.draw_battle()
-            curses.napms(30)
+            self.pause(30)
         self.fx = None
         self.draw_battle()
 
@@ -634,7 +638,7 @@ class BattleMixin:
                     step = max(1, abs(diff) // 6)
                     self.shown_hp[i] += step if diff > 0 else -step
             self.draw_battle()
-            curses.napms(25)
+            self.pause(25)
         self.shown_hp = targets
 
     def say(self, text, log=True):
@@ -688,6 +692,12 @@ class BattleMixin:
                                      ('PSN', p.str < p.max_str)) if on]
         if flags:
             self.put(12, 44, ' '.join(flags[:3]), COLORS['magenta'] | curses.A_BOLD)
+        allies = [h for h in (self.hero.battle.heroes if self.hero.battle else [])
+                  if h is not self.hero]
+        if allies:                                        # who else is in the fight
+            names = '  '.join(f'{h.name.upper()[:10]} {h.player.hp}/{h.player.max_hp}'
+                              for h in allies)
+            self.put(15, 44, f' WITH {names} '[:34], COLORS['cyan'] | curses.A_BOLD)
         self.hp_bar(11, 44, self.shown_hp[1], p.max_hp, 26)
         self.put(12, 58, f'{max(0, self.shown_hp[1]):>3}/{p.max_hp:>3}', curses.A_BOLD)
         prev = xp_needed(p.level - 1) if p.level > 1 else 0

@@ -90,13 +90,14 @@ class UIMixin:
                        FLOOR: 'white', CORRIDOR: 'white', STAIRS: 'green',
                        CAVE_WALL: wall, PILLAR: wall,
                        POOL: self.env.get('pool', ('', 'red'))[1]}
+        seen = self.party_visible()               # in co-op, the party shares what it sees
         for y in range(MAP_H):
             row = self.tiles[y]
             for x in range(MAP_W):
                 if not self.explored[y][x] or row[x] == ROCK:
                     continue
                 t = row[x]
-                if (x, y) in self.visible:
+                if (x, y) in seen:
                     attr = COLORS[tile_colors[t]] | (curses.A_BOLD if t in (STAIRS, POOL) else 0)
                 else:
                     attr = COLORS['blue']
@@ -104,20 +105,25 @@ class UIMixin:
 
         for (x, y), t in self.traps.items():
             if t.found:
-                color = TRAPS[t.kind][1] if (x, y) in self.visible else 'blue'
+                color = TRAPS[t.kind][1] if (x, y) in seen else 'blue'
                 self.put(MAP_TOP + y, x, '^', COLORS[color] | curses.A_BOLD)
         for it in self.items:
-            if (it.x, it.y) in self.visible:
+            if (it.x, it.y) in seen:
                 it.seen = True
             if it.seen:
                 self.put(MAP_TOP + it.y, it.x, ITEM_CHARS[it.kind],
                          COLORS[ITEM_COLORS[it.kind]] | curses.A_BOLD)
         for npc in self.npcs:
-            if (npc.x, npc.y) in self.visible:
+            if (npc.x, npc.y) in seen:
                 self.put(MAP_TOP + npc.y, npc.x, '&', COLORS[npc.color] | curses.A_BOLD)
-        for m in self.visible_monsters():
-            self.put(MAP_TOP + m.y, m.x, m.ch, COLORS[m.color] | curses.A_BOLD)
-        self.put(MAP_TOP + p.y, p.x, '@', COLORS['yellow'] | curses.A_BOLD)
+        for m in self.monsters:
+            if (m.x, m.y) in seen:
+                self.put(MAP_TOP + m.y, m.x, m.ch, COLORS[m.color] | curses.A_BOLD)
+        for h in self.party():                    # the rest of the party, in their colors
+            if h is not self.hero:
+                self.put(MAP_TOP + h.player.y, h.player.x, '@', COLORS[h.color] | curses.A_BOLD)
+        if self.hero.state == 'active':
+            self.put(MAP_TOP + p.y, p.x, '@', COLORS['yellow'] | curses.A_BOLD)
 
         self.draw_status()
         self.draw_log_panel()
@@ -232,11 +238,22 @@ class UIMixin:
             top, left, height, width = 25, 0, rows - 26, min(cols - 1, 80)
         else:
             return
+        party = self.party_lines(width)
+        if party:
+            self.put(top, left, ' PARTY '.center(width, '─'), COLORS['cyan'])
+            for i, (line, attr) in enumerate(party):
+                self.put(top + 1 + i, left, line, attr)
+            top += len(party) + 1
+            height -= len(party) + 1
         self.put(top, left, ' RECENT EVENTS '.center(width, '─'), COLORS['cyan'])
         lines = self.log_lines(width, self.log[-height:], stamps=False)[-height:]
         for i, (head, line, attr) in enumerate(lines):
             self.put(top + 1 + i, left, head)
             self.put_rich(top + 1 + i, left + len(head), line, attr)
+
+    def party_lines(self, width):
+        """Lines about the other heroes, for the panel beside the map (none playing alone)."""
+        return []
 
     def show_log(self):
         """Scroll through the event log. It opens at the newest events."""
@@ -350,9 +367,10 @@ class UIMixin:
         self.draw([question])
         return self.scr.getch() in (ord('y'), ord('Y'))
 
-    def ending_screen(self):
+    def ending_screen(self, over=None):
         p = self.player
-        kind = self.game_over[0]
+        over = over or self.game_over
+        kind = over[0]
         if kind == 'died':
             def c(s):
                 return s[:18].center(18)
@@ -367,7 +385,7 @@ class UIMixin:
                 f'                | {c(self.name)} |',
                 f'                | {c(f"{p.gold} Au")} |',
                 f'                | {c("killed by")} |',
-                f'                | {c(self.game_over[1])} |',
+                f'                | {c(over[1])} |',
                 f'                | {c(f"on depth {self.depth}")} |',
                 f'                | {c(f"at level {p.level}")} |',
                 '               *|     *  *  *        | *',

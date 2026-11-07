@@ -22,6 +22,8 @@ python3 rogue.py
 
 - `--seed WORD` starts a new game from a seed (any word or number). The same seed always builds the same 20 levels, with the same monsters, items and unidentified potion colors, however you play the levels before them. Without one, the game picks a random number. Either way, you can find the seed in the event log and the hall of fame.
 - `--scores` prints the hall of fame and quits.
+- `--name NAME` skips the name prompt.
+- `--host [PORT]` and `--join HOST[:PORT]` play co-op (see [Co-op](#co-op)).
 
  Run it directly in a real terminal window. It won't start from an IDE output pane or any other environment without an interactive TTY, because curses fails with `cbreak() returned ERR` there.
 
@@ -95,6 +97,24 @@ You move with the arrow keys or the numpad; letter keys don't move you. To move 
 
 In menus, the arrow keys move the cursor, `Enter`/`Space`/`z` choose, and `Esc`/`x` go back. In battle, `M` opens the event log.
 
+## Co-op
+
+Up to 4 players can explore the same dungeon together, each from their own terminal. One player hosts, and the others join over the network:
+
+```sh
+python3 rogue.py --host                    # host on port 7878 (or --host 9000)
+python3 rogue.py --join 192.168.1.20       # join (add :PORT if the host chose one)
+```
+
+The host's lobby shows the address to join with. When everyone is in, the host presses Enter. Everyone needs the same version of the game, and the host's port has to be reachable (on a home network that usually just works; over the internet the host must forward the port). `--seed` works for the host, and the host's computer keeps the hall of fame for everyone.
+
+- **Turns happen together.** The dungeon moves on once every hero has acted, so someone browsing their inventory or chatting with a merchant holds up the turn for everyone. While you wait, the top line says who the party is waiting for.
+- **Shared sight.** You see everything any hero can see, and the other heroes show as `@` in their own colors. In a terminal bigger than 80×24, a PARTY panel lists everyone's HP and what they're doing; `p` on the map shows the same.
+- **Shared battles.** A battle pulls in every hero standing next to it, and walking into a monster that's already fighting joins its battle. Each hero picks a move every round, then the foes strike back at random heroes. Everyone in the fight gets the EXP for each monster beaten; the gold goes to whoever struck the last blow. RUN takes only you out of the fight.
+- **Stairs.** A hero who goes down the stairs (or falls through a trapdoor) waits at the bottom until the rest of the party follows, then everyone arrives on the next depth together.
+- **Falling.** A hero who dies watches the rest of the party play on. The run ends when the last hero falls, or for everyone when someone picks up the Amulet.
+- **Leaving.** `Q` leaves the game. If your connection drops, or you leave while still alive, join again with the same name to take your hero back. Co-op games aren't saved: when the host quits, the game is over.
+
 ## Saving
 
 There is one saved game, and you only get one life. When you start the game with a save, you can continue it or begin a new game, which deletes the save.
@@ -135,6 +155,7 @@ The help screen (`?`) lists the map symbols you've found so far, adding each one
 | `sprites.py` | ASCII art for the battle screen |
 | `text.py` | Colors and the highlighting of important words |
 | `player.py` | The player character |
+| `hero.py` | What each player has for themselves: their character, messages, log and battle |
 | `game.py` | The `Game` class: turns, monster movement and the keyboard |
 | `dungeon.py` | Level generation and field of view |
 | `actions.py` | Walking, running, resting, traps and stairs |
@@ -144,7 +165,11 @@ The help screen (`?`) lists the map symbols you've found so far, adding each one
 | `ui.py` | Drawing the map, menus, the event log, help and the ending screen |
 | `save.py` | Saving, loading and deleting the saved game |
 | `scores.py` | The hall of fame |
+| `coop.py` | Co-op: shared turns and battles, the stairs, falling and leaving |
+| `net.py` | Co-op over the network: the host's server, each player's screen, and the client |
 | `main.py` | Startup: command-line options, terminal checks, continuing a saved game, and the name prompt |
+
+In co-op, the host runs the game and every player's terminal is just a window onto it. Each hero is played on its own thread, all under one lock, and `self.player`, `self.scr` and the rest belong to whichever hero's turn is being played.
 
 `Game` is built from one mixin class per part of the game (`DungeonMixin`, `ActionsMixin`, `ItemsMixin`, `BattleMixin`, `TalkMixin` and `UIMixin`). Adding a monster, spell or item mostly means adding entries to its data tables (a monster also needs a sprite in `sprites.py`). A new character also needs a `talk_<kind>` method in `dialogue.py`.
 
