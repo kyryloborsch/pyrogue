@@ -108,18 +108,23 @@ def main(scr, args):
 def play_online(scr, args):
     """Host a co-op game (and play in it), or join one."""
     name = args.name or ask_name(scr)
+    if args.join and args.relay and net.is_room_code(args.join):
+        return net.Client(scr, lambda: net.connect_relay(args.relay, args.join),
+                          f'room {args.join.upper()} on the relay', name).run()
     if args.join:
         try:
             host, port = net.parse_address(args.join)
         except ValueError:
             return f'"{args.join}" is not an address. Try something like 192.168.1.20:7878.'
-        return net.Client(scr, host, port, name).run()
-    server = net.Server(args.host, args.seed)
+        return net.Client(scr, lambda: net.connect_tcp(host, port), f'{host}:{port}',
+                          name).run()
+    server = net.Server(args.host, args.seed, args.relay)
     try:
         server.start()
     except OSError as e:
         return f'Could not host a game on port {args.host} ({e.strerror or e}).'
-    message = net.Client(scr, '127.0.0.1', args.host, name).run()
+    message = net.Client(scr, lambda: net.connect_tcp('127.0.0.1', args.host), 'your game',
+                         name).run()
     # the game lives in this process: keep it going while the others read their endings
     scr.timeout(500)
     while server.game and server.players():
@@ -138,9 +143,17 @@ def parse_args():
     parser.add_argument('--host', nargs='?', type=int, const=net.DEFAULT_PORT, metavar='PORT',
                         help=f'host a co-op game for up to {net.MAX_PLAYERS} players '
                         f'(port {net.DEFAULT_PORT} unless you give one)')
-    parser.add_argument('--join', metavar='HOST[:PORT]', help='join a co-op game')
+    parser.add_argument('--join', metavar='HOST[:PORT] or CODE',
+                        help='join a co-op game: by its room code, or at its address on your '
+                        'network')
+    parser.add_argument('--relay', metavar='URL',
+                        default=os.environ.get('PYROGUE_RELAY') or net.DEFAULT_RELAY,
+                        help='the co-op relay (a Cloudflare Worker, see relay/) that online games '
+                        'go through, instead of the game\'s own; "off" plays only on your network')
     parser.add_argument('--name', help='your name, instead of being asked')
     args = parser.parse_args()
+    if args.relay.lower() in ('off', 'none', 'no'):
+        args.relay = None
     if args.host and args.join:
         parser.error('--host and --join can\'t be used together')
     return args

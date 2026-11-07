@@ -23,7 +23,7 @@ python3 rogue.py
 - `--seed WORD` starts a new game from a seed (any word or number). The same seed always builds the same 20 levels, with the same monsters, items and unidentified potion colors, however you play the levels before them. Without one, the game picks a random number. Either way, you can find the seed in the event log and the hall of fame.
 - `--scores` prints the hall of fame and quits.
 - `--name NAME` skips the name prompt.
-- `--host [PORT]` and `--join HOST[:PORT]` play co-op (see [Co-op](#co-op)).
+- `--host` and `--join CODE` play co-op online (see [Co-op](#co-op)).
 
  Run it directly in a real terminal window. It won't start from an IDE output pane or any other environment without an interactive TTY, because curses fails with `cbreak() returned ERR` there.
 
@@ -99,14 +99,14 @@ In menus, the arrow keys move the cursor, `Enter`/`Space`/`z` choose, and `Esc`/
 
 ## Co-op
 
-Up to 4 players can explore the same dungeon together, each from their own terminal. One player hosts, and the others join over the network:
+Up to 4 players can explore the same dungeon together, each from their own terminal, wherever they are. One player hosts, and the others join with the room code the host's lobby shows:
 
 ```sh
-python3 rogue.py --host                    # host on port 7878 (or --host 9000)
-python3 rogue.py --join 192.168.1.20       # join (add :PORT if the host chose one)
+python3 rogue.py --host                    # opens a room, like K7QX2M
+python3 rogue.py --join K7QX2M             # join it from anywhere
 ```
 
-The host's lobby shows the address to join with. When everyone is in, the host presses Enter. Everyone needs the same version of the game, and the host's port has to be reachable (on a home network that usually just works; over the internet the host must forward the port). `--seed` works for the host, and the host's computer keeps the hall of fame for everyone.
+When everyone is in, the host presses Enter. Games go through the game's relay on Cloudflare (see below), so nobody has to open a port or know anyone's address. Friends on the host's own network can also join by address (`--join 192.168.1.20`, plus `:PORT` if the host used `--host 9000`), and that keeps working if the relay can't be reached. Everyone needs the same version of the game. `--seed` works for the host, and the host's computer keeps the hall of fame for everyone.
 
 - **Turns happen together.** The dungeon moves on once every hero has acted, so someone browsing their inventory or chatting with a merchant holds up the turn for everyone. While you wait, the top line says who the party is waiting for.
 - **Shared sight.** You see everything any hero can see, and the other heroes show as `@` in their own colors. In a terminal bigger than 80×24, a PARTY panel lists everyone's HP and what they're doing; `p` on the map shows the same.
@@ -114,6 +114,14 @@ The host's lobby shows the address to join with. When everyone is in, the host p
 - **Stairs.** A hero who goes down the stairs (or falls through a trapdoor) waits at the bottom until the rest of the party follows, then everyone arrives on the next depth together.
 - **Falling.** A hero who dies watches the rest of the party play on. The run ends when the last hero falls, or for everyone when someone picks up the Amulet.
 - **Leaving.** `Q` leaves the game. If your connection drops, or you leave while still alive, join again with the same name to take your hero back. Co-op games aren't saved: when the host quits, the game is over.
+
+### The relay
+
+The relay is a small Cloudflare Worker, in `relay/`, at `https://pyrogue-relay.pyrogue.workers.dev`. The host and every player connect out to it with a WebSocket, so it works from behind any home router, and it passes the messages between them. Each game is one room, kept by a [Durable Object](https://developers.cloudflare.com/durable-objects/). The relay never reads the game's messages, and the room closes when the host leaves. Screens go through it at most about 30 times a second per player, and only when something changes, to keep ordinary play within Cloudflare's free plan.
+
+- `--relay off` plays only on your own network.
+- `--relay URL` (or `PYROGUE_RELAY`) uses another relay, like your own copy. Deploy one with a free Cloudflare account and [wrangler](https://developers.cloudflare.com/workers/wrangler/): `cd relay`, `npx wrangler login`, then `npx wrangler deploy`, which prints its address. Everyone in the game has to use the same relay.
+- To work on the relay, run `npx wrangler dev` in `relay/` and play with `--relay http://localhost:8787`.
 
 ## Saving
 
@@ -166,8 +174,11 @@ The help screen (`?`) lists the map symbols you've found so far, adding each one
 | `save.py` | Saving, loading and deleting the saved game |
 | `scores.py` | The hall of fame |
 | `coop.py` | Co-op: shared turns and battles, the stairs, falling and leaving |
-| `net.py` | Co-op over the network: the host's server, each player's screen, and the client |
+| `net.py` | Co-op over the network: the host's server, each player's screen, the relay connection, and the client |
+| `wsock.py` | A small WebSocket client, for reaching the relay with the standard library alone |
 | `main.py` | Startup: command-line options, terminal checks, continuing a saved game, and the name prompt |
+
+`relay/` holds the Cloudflare Worker that relays co-op games (`src/index.js`, deployed with `wrangler.toml`).
 
 In co-op, the host runs the game and every player's terminal is just a window onto it. Each hero is played on its own thread, all under one lock, and `self.player`, `self.scr` and the rest belong to whichever hero's turn is being played.
 

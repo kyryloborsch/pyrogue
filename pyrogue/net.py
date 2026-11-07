@@ -2,23 +2,35 @@
 the client that shows them in a player's terminal.
 
 The host runs the whole game. Each player's terminal is a plain window onto it: the client
-sends the keys pressed and draws the screens it gets back. Messages are lines of JSON."""
+sends the keys pressed and draws the screens it gets back. Messages are JSON.
+
+Players connect straight to the host over TCP, or through the relay (a Cloudflare Worker,
+see relay/) when the host can't open a port: then the host and every player connect out to
+the relay with a WebSocket, and it passes the messages along."""
 
 import curses
 import json
+import queue
+import secrets
 import socket
 import threading
 import time
 from collections import deque
+from urllib.parse import urlsplit, urlunsplit
+
+from .wsock import WebSocket, WebSocketError
 
 from .coop import CoopGame, Disconnected, Stop
 from .hero import Hero
 
 DEFAULT_PORT = 7878
+DEFAULT_RELAY = 'https://pyrogue-relay.pyrogue.workers.dev'   # the game's own relay (relay/)
 PROTOCOL = 1                     # bump when the messages or the game change in a way that
                                  # host and players must agree on
 MAX_PLAYERS = 4
 MAX_LINE = 1 << 16               # longest message accepted, in bytes
+RELAY_GAP = 0.03                 # seconds between screens sent through the relay (its quota)
+CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # room codes skip look-alikes (0/O, 1/I)
 
 # attributes travel by meaning, so terminals with different curses libraries agree
 FLAGS = [(curses.A_BOLD, 1), (curses.A_REVERSE, 2), (curses.A_DIM, 4), (curses.A_BLINK, 8)]
@@ -39,13 +51,19 @@ def decode_attr(code):
 
 
 class Link:
-    """One end of a connection: JSON messages, one per line."""
+    """One end of a TCP connection: JSON messages, one per line. Every kind of link has
+    send(msg), recv() (None once closed), ready() (the hello has arrived) and close()."""
+
+    gap = 0                          # seconds to leave between screens
 
     def __init__(self, sock):
         self.sock = sock
         self.rfile = sock.makefile('rb')
         self.wlock = threading.Lock()
         self.closed = False
+
+    def ready(self):
+        self.sock.settimeout(None)
 
     def send(self, msg):
         data = json.dumps(msg, separators=(',', ':')).encode() + b'\n'
@@ -74,6 +92,133 @@ class Link:
         except OSError:
             pass
         self.sock.close()
+
+
+class WsLink:
+    """A player's connection to the host through the relay."""
+
+    gap = 0
+
+    def __init__(self, ws):
+        self.ws = ws
+        self.closed = False
+
+    def send(self, msg):
+        self.ws.send(json.dumps(msg, separators=(',', ':')))
+
+    def recv(self):
+        text = self.ws.recv()
+        if text is None:                # the relay may say why, like the host leaving
+            self.closed = True
+            return {'t': 'bye', 'text': self.ws.reason} if self.ws.reason else None
+        try:
+            msg = json.loads(text)
+        except ValueError:
+            msg = None
+        if not isinstance(msg, dict):
+            self.close()
+            return None
+        return msg
+
+    def ready(self):
+        pass
+
+    def close(self):
+        self.closed = True
+        self.ws.close()
+
+
+class RelayLink:
+    """A player who joined through the relay, as the host sees them."""
+
+    gap = RELAY_GAP
+
+    def __init__(self, relay, pid):
+        self.relay, self.pid = relay, pid
+        self.inbox = queue.Queue()
+        self.timeout = 10            # for the hello
+        self.closed = False
+
+    def feed(self, text):
+        self.inbox.put(text)
+
+    def send(self, msg):
+        if not self.closed:
+            self.relay.ws.send(f'{self.pid}|{json.dumps(msg, separators=(",", ":"))}')
+
+    def recv(self):
+        try:
+            text = self.inbox.get(timeout=self.timeout)
+            msg = json.loads(text) if text is not None else None
+        except (queue.Empty, ValueError):
+            msg = None
+        if not isinstance(msg, dict):
+            self.close()
+            return None
+        return msg
+
+    def ready(self):
+        self.timeout = None
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            self.relay.ws.send(f'{self.pid}|-')
+            self.relay.links.pop(self.pid, None)
+            self.inbox.put(None)
+
+
+def relay_url(base, code, role):
+    """The relay's WebSocket address for a room. base is the Worker's address, as
+    https://... (or http://... for wrangler dev)."""
+    parts = urlsplit(base if '://' in base else f'https://{base}')
+    scheme = {'https': 'wss', 'http': 'ws'}.get(parts.scheme, parts.scheme)
+    path = f'{parts.path.rstrip("/")}/room/{code}'
+    return urlunsplit((scheme, parts.netloc, path, f'role={role}', ''))
+
+
+class Relay:
+    """The host's connection to the relay: one WebSocket that carries every player who
+    joined through it."""
+
+    def __init__(self, server, base):
+        self.server, self.base = server, base
+        self.links = {}
+        for _ in range(3):                     # a code someone else is using: pick another
+            self.code = ''.join(secrets.choice(CODE_LETTERS) for _ in range(6))
+            try:
+                self.ws = WebSocket(relay_url(base, self.code, 'host'))
+                break
+            except WebSocketError as e:
+                if 'already taken' not in str(e):
+                    raise
+        else:
+            raise WebSocketError('could not get a room code')
+        self.ws.keep_alive()
+        self.lost = None                       # why the relay connection ended, if it did
+        threading.Thread(target=self.read, daemon=True).start()
+
+    def read(self):
+        while True:
+            text = self.ws.recv()
+            if text is None:
+                self.lost = self.ws.reason or 'the connection to the relay was lost'
+                for link in list(self.links.values()):
+                    link.closed = True
+                    link.feed(None)
+                return
+            pid, _, payload = text.partition('|')
+            if payload == '+':
+                link = self.links[pid] = RelayLink(self, pid)
+                threading.Thread(target=self.server.greet, args=(link,), daemon=True).start()
+            elif pid in self.links:
+                link = self.links[pid]
+                if payload == '-':
+                    link.closed = True
+                    self.links.pop(pid, None)
+                    link.feed(None)
+                else:
+                    link.feed(payload)
 
 
 # ---------------------------------------------------------------------- the server side
@@ -213,6 +358,7 @@ class VirtualScreen:
             frame = self.frame
             if frame and frame != self.sent:
                 self.send_frame(frame)
+                time.sleep(self.link.gap)
             if self.closed:
                 if getattr(self, 'goodbye', None) is not None:
                     self.link.send({'t': 'bye', 'text': self.goodbye})
@@ -259,17 +405,25 @@ class Seat:
 class Server:
     """The host's game: a lobby until the host starts, then the co-op game."""
 
-    def __init__(self, port=DEFAULT_PORT, seed=None):
-        self.port, self.seed = port, seed
+    def __init__(self, port=DEFAULT_PORT, seed=None, relay=None):
+        self.port, self.seed, self.relay_base = port, seed, relay
         self.cv = threading.Condition(threading.Lock())
         self.seats = []
         self.game = None
         self.sock = None
+        self.relay = None
+        self.offline = None              # why there's no room on the relay, if there isn't
 
     def start(self):
-        """Start listening. Raises OSError if the port can't be used."""
+        """Start listening, and open a room on the relay if there is one. Raises OSError if
+        the port can't be used. Without the relay, the game is still open on this network."""
         self.sock = socket.create_server(('', self.port), reuse_port=False)
         threading.Thread(target=self.accept_loop, daemon=True).start()
+        if self.relay_base:
+            try:
+                self.relay = Relay(self, self.relay_base)
+            except WebSocketError as e:
+                self.offline = str(e)
 
     def accept_loop(self):
         while True:
@@ -278,16 +432,15 @@ class Server:
             except OSError:
                 return
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            threading.Thread(target=self.greet, args=(conn,), daemon=True).start()
+            conn.settimeout(10)                     # for the hello
+            threading.Thread(target=self.greet, args=(Link(conn),), daemon=True).start()
 
-    def greet(self, conn):
-        conn.settimeout(10)
-        link = Link(conn)
+    def greet(self, link):
         hello = link.recv()
         if not hello or hello.get('t') != 'hello':
             link.close()
             return
-        conn.settimeout(None)
+        link.ready()
         name = str(hello.get('name') or 'Rogue').strip()[:18] or 'Rogue'
         if hello.get('version') != PROTOCOL:
             return refuse(link, 'You and the host have different versions of the game. '
@@ -344,14 +497,26 @@ class Server:
         scr = seat.scr
         host = seat is self.seats[0]
         scr.erase()
+        width = scr.getmaxyx()[1] - 6
         scr.addstr(2, 4, 'ROGUE-LIKE: co-op lobby', curses.A_BOLD)
+        if self.relay:
+            scr.addstr(3, 4, f'Room code: {self.relay.code}', curses.A_BOLD)
         if host:
-            scr.addstr(4, 4, f'Your friends can join with:  python3 rogue.py --join '
-                             f'{local_ip()}:{self.port}'[:75])
-        scr.addstr(6, 4, f'Players ({len(self.seats)}/{MAX_PLAYERS}):')
+            scr.addstr(4, 4, 'Your friends can join with:')
+            scr.addstr(5, 6, f'python3 rogue.py --join {local_ip()}:{self.port}'
+                             f'{"   (same network)" if self.relay else ""}'[:width])
+            if self.relay:
+                other = '' if self.relay_base == DEFAULT_RELAY else f' --relay {self.relay_base}'
+                scr.addstr(6, 6, f'python3 rogue.py --join {self.relay.code}{other}'
+                                 f'   (anywhere)'[:width])
+            problem = self.offline or (self.relay and self.relay.lost)
+            if problem:
+                scr.addstr(7, 6, f'Online play is unavailable ({problem}); friends on this '
+                                 f'network can still join.'[:width], curses.A_BOLD)
+        scr.addstr(8, 4, f'Players ({len(self.seats)}/{MAX_PLAYERS}):')
         for i, s in enumerate(self.seats):
-            scr.addstr(8 + i, 6, f'{s.name}{"  (host)" if i == 0 else ""}')
-        scr.addstr(14, 4, 'Press Enter to begin the adventure, or q to leave.' if host else
+            scr.addstr(10 + i, 6, f'{s.name}{"  (host)" if i == 0 else ""}')
+        scr.addstr(15, 4, 'Press Enter to begin the adventure, or q to leave.' if host else
                    'Waiting for the host to begin... (q to leave)')
         scr.refresh()
         scr.timeout(1000)
@@ -400,31 +565,57 @@ def parse_address(text, default_port=DEFAULT_PORT):
     return host or text, int(port) if port else default_port
 
 
-class Client:
-    """A player's terminal: it shows what the host draws and sends the keys pressed."""
+def is_room_code(text):
+    """A room code, rather than an address like 192.168.1.20 or localhost:7878."""
+    return 4 <= len(text) <= 12 and text.isalnum() and text.lower() != 'localhost'
 
-    def __init__(self, scr, host, port, name):
-        self.scr, self.host, self.port, self.name = scr, host, port, name
+
+def connect_tcp(host, port):
+    """A link straight to the host's game. Raises ConnectionError."""
+    try:
+        sock = socket.create_connection((host, port), timeout=5)
+    except OSError as e:
+        raise ConnectionError(f'Could not reach a game at {host}:{port} '
+                              f'({e.strerror or e}).') from e
+    sock.settimeout(None)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    return Link(sock)
+
+
+def connect_relay(base, code):
+    """A link to the game in a room on the relay. Raises ConnectionError."""
+    code = code.strip().upper()
+    try:
+        ws = WebSocket(relay_url(base, code, 'player'))
+    except WebSocketError as e:
+        raise ConnectionError(f'Could not join room {code} on the relay: {e}') from e
+    ws.keep_alive()
+    return WsLink(ws)
+
+
+class Client:
+    """A player's terminal: it shows what the host draws and sends the keys pressed.
+    connect() opens the link to the game."""
+
+    def __init__(self, scr, connect, where, name):
+        self.scr, self.connect, self.where, self.name = scr, connect, where, name
         self.inbox = deque()
         self.lock = threading.Lock()
 
     def run(self):
         """Play until the game ends or the connection drops. Returns a message for the
         terminal, once curses is done."""
+        self.scr.erase()
+        self.scr.addstr(2, 4, f'Connecting to {self.where}...')
+        self.scr.refresh()
         try:
-            sock = socket.create_connection((self.host, self.port), timeout=5)
-        except OSError as e:
-            return f'Could not reach a game at {self.host}:{self.port} ({e.strerror or e}).'
-        sock.settimeout(None)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        link = Link(sock)
+            link = self.connect()
+        except ConnectionError as e:
+            return str(e)
         rows, cols = self.scr.getmaxyx()
         link.send({'t': 'hello', 'name': self.name, 'version': PROTOCOL,
                    'rows': rows, 'cols': cols})
         threading.Thread(target=self.read, args=(link,), daemon=True).start()
-        self.scr.erase()
-        self.scr.addstr(2, 4, f'Connecting to {self.host}:{self.port}...')
-        self.scr.refresh()
         self.scr.timeout(30)
         try:
             while True:
