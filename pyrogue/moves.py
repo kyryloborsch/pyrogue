@@ -8,7 +8,7 @@
 # per 2 levels). all: hits every foe in the battle.
 MOVES = {
     'STRIKE':      {'type': 'normal',  'acc': 95,  'mp': 0, 'mult': 1.0},
-    'POWER SMASH': {'type': 'normal',  'acc': 70,  'mp': 0, 'mult': 1.5},
+    'POWER SMASH': {'type': 'normal',  'acc': 80,  'mp': 0, 'mult': 1.5},
     'FIRE BOLT':   {'type': 'fire',    'acc': 90,  'mp': 3, 'dice': 2, 'effect': ('burn', 25)},
     'FROST SHARD': {'type': 'ice',     'acc': 90,  'mp': 3, 'dice': 2, 'effect': ('freeze', 15)},
     'VENOM':       {'type': 'poison',  'acc': 95,  'mp': 3, 'dice': 1, 'effect': ('poison', 80)},

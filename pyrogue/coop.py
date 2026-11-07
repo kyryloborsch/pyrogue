@@ -475,7 +475,7 @@ class CoopGame(Game):
                 break
             if f.hp <= 0 or f not in b.foes:
                 continue
-            h = random.choice(heroes)
+            h = self.next_target(b, heroes)
             with self.as_hero(h):
                 self.foe_turn(f, h.guarding, h.held)
         for h in b.heroes:
@@ -483,6 +483,14 @@ class CoopGame(Game):
         if b.heroes:
             with self.as_hero(b.heroes[0]):
                 self.clear_fainted()
+
+    def next_target(self, b, heroes):
+        """The hero a foe strikes next. Blows are dealt out in a shuffled order, so every
+        hero in the fight takes as many as the others."""
+        b.targets = [h for h in b.targets if h in heroes]
+        if not b.targets:
+            b.targets = random.sample(heroes, len(heroes))
+        return b.targets.pop()
 
     def coop_battle(self):
         """This hero's side of a battle: pick a move each round, then wait for the foes."""
@@ -622,7 +630,13 @@ class CoopGame(Game):
             if log:
                 with self.as_hero(x):
                     self.record(text)
-            x.feed.append(('say', text, h))
+            x.feed.append(('say', text, h, self.hp_now()))
+
+    def hp_now(self):
+        """The battle as it stands: (foe, its HP, each hero's HP). The feed keeps this with
+        each line, so the bars a player sees match the line they're reading."""
+        m = self.foe or self.fallen
+        return m, m.hp if m else 0, {x: x.player.hp for x in self.hero.battle.heroes}
 
     def damage_fx(self, who, dmg, color='red', note=''):
         h = self.hero
@@ -630,20 +644,23 @@ class CoopGame(Game):
             return super().damage_fx(who, dmg, color, note)
         if h.battle:
             for x in ([h] if who == 'player' else h.battle.heroes):
-                x.feed.append(('fx', who, dmg, color, note))
+                x.feed.append(('fx', who, dmg, color, note, self.hp_now()))
 
     def animate_hp(self):
         h = self.hero
         if self.replaying():
+            if h.view:
+                _, hp, heroes = h.view
+                return super().animate_hp([hp, heroes.get(h, self.player.hp)])
             return super().animate_hp()
         if h.battle:
             for x in h.battle.heroes:
-                x.feed.append(('hp',))
+                x.feed.append(('hp', self.hp_now()))
 
     def play_feed(self):
         """Show this player what happened in their battle since they last looked."""
         h = self.hero
-        h.feed += [('say', t, h) for t in h.msgs]
+        h.feed += [('say', t, h, None) for t in h.msgs]
         h.msgs = []
         if not (self.foe or self.fallen):
             h.feed = []
@@ -651,7 +668,11 @@ class CoopGame(Game):
         self._ctx.replaying = True
         try:
             while h.feed:
-                kind, *args = h.feed.pop(0)
+                kind, *args, view = h.feed.pop(0)
+                if view:
+                    if h.view and view[0] is not h.view[0]:      # a new foe to look at
+                        self.shown_hp[0] = view[1]
+                    h.view = view
                 if kind == 'say':
                     text, who = args
                     if who is not h and text.startswith(('You ', 'Your ')):
@@ -660,9 +681,10 @@ class CoopGame(Game):
                 elif kind == 'fx':
                     BattleMixin.damage_fx(self, *args)
                 else:
-                    BattleMixin.animate_hp(self)
+                    self.animate_hp()
         finally:
             self._ctx.replaying = False
+            h.view = None
         if self.foe:
             self.shown_hp = [self.foe.hp, self.player.hp]
 

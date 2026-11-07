@@ -99,7 +99,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
             game.seed = cls.new_seed()
             game.record(f'This run\'s seed is {game.seed}.')
         hero = game.heroes[0]
-        hero.scr, hero.battle, hero.fallen, hero.fx = scr, None, None, None
+        hero.scr, hero.battle, hero.fallen, hero.fx, hero.view = scr, None, None, None, None
         game.snapshot = None
         game.msg(f'Welcome back, {game.name}! You are on depth {game.depth}.')
         return game

@@ -17,6 +17,8 @@ from .world import BOSSES
 THROW_ACCURACY = 90             # base chance (%) a thrown potion hits, like a move's acc
 HELD_DAMAGE = 2 / 3             # share of a blow you take on a turn lost to a status
 SPLASH_DAMAGE = 0.6             # share of a blow each hero takes from a splash attack (co-op)
+PHYSICAL_DAMAGE = 1.15          # STRIKE and POWER SMASH hit this much harder
+SPELL_DAMAGE = 0.85             # attack spells hit this much softer
 
 
 class BattleMixin:
@@ -330,12 +332,13 @@ class BattleMixin:
             return
         weak = part is not None and part == m.weak
         if 'mult' in info:
-            dmg = (random.randint(*p.weapon_dmg) + p.str_bonus + p.melee_bonus) * info['mult']
+            dmg = ((random.randint(*p.weapon_dmg) + p.str_bonus + p.melee_bonus) * info['mult']
+                   * PHYSICAL_DAMAGE)
             if part:
                 dmg *= PARTS[part][1] * (WEAK_SPOT_MULT if weak else 1)
         else:
-            dmg = (sum(random.randint(1, 6) for _ in range(info['dice'])) + p.level
-                   + p.spell_power)
+            dmg = ((sum(random.randint(1, 6) for _ in range(info['dice'])) + p.level
+                    + p.spell_power) * SPELL_DAMAGE)
         eff = self.effectiveness(info['type'], m)
         crit = random.random() < 1 / 16
         dmg = max(1, int(dmg * eff * (1.5 if crit else 1)))
@@ -636,10 +639,12 @@ class BattleMixin:
         self.fx = None
         self.draw_battle()
 
-    def animate_hp(self):
-        if not self.foe:
-            return
-        targets = [self.foe.hp, self.player.hp]
+    def animate_hp(self, targets=None):
+        """Let the HP bars catch up with the HP, or with targets: [foe's HP, yours]."""
+        if targets is None:
+            if not self.foe:
+                return
+            targets = [self.foe.hp, self.player.hp]
         for _ in range(40):
             if self.shown_hp == targets:
                 break
@@ -667,7 +672,8 @@ class BattleMixin:
             self.say(t, log=False)
 
     def draw_battle(self, text=None, more=False, extra=None):
-        m, p = self.foe or self.fallen, self.player
+        p, view = self.player, self.hero.view       # view: co-op, the battle as of this line
+        m = view[0] if view else self.foe or self.fallen
         fx = self.fx or {}
         hit = fx.get('who') if 'dx' in fx else None       # whose sprite is jolting right now
         self.scr.erase()
@@ -706,8 +712,9 @@ class BattleMixin:
         allies = [h for h in (self.hero.battle.heroes if self.hero.battle else [])
                   if h is not self.hero]
         if allies:                                        # who else is in the fight
-            names = '  '.join(f'{h.name.upper()[:10]} {h.player.hp}/{h.player.max_hp}'
-                              for h in allies)
+            names = '  '.join(f'{h.name.upper()[:10]} '
+                              f'{view[2].get(h, h.player.hp) if view else h.player.hp}'
+                              f'/{h.player.max_hp}' for h in allies)
             self.put(15, 44, f' WITH {names} '[:34], COLORS['cyan'] | curses.A_BOLD)
         self.hp_bar(11, 44, self.shown_hp[1], p.max_hp, 26)
         self.put(12, 58, f'{max(0, self.shown_hp[1]):>3}/{p.max_hp:>3}', curses.A_BOLD)

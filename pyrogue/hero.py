@@ -10,6 +10,7 @@ class Battle:
         self.foes = foes
         self.heroes = heroes
         self.rounds = 0              # rounds fought (co-op heroes wait for the next one)
+        self.targets = []            # heroes still due a blow before anyone gets a second one
 
 
 class Hero:
@@ -38,6 +39,7 @@ class Hero:
         self.fighting = False        # inside the battle loop
         self.guarding = self.held = False   # how this battle round's blows land on the hero
         self.feed = []               # battle lines and hits still to be shown to this player
+        self.view = None             # (foe, its HP, each hero's HP) as of the feed line shown
         self.fall = 0                # damage still to take from a trapdoor fall
         self.result = None           # ('died', reason) once fallen
         self.ending = False          # looking at the ending screens
