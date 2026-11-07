@@ -62,7 +62,7 @@ A boss level has no stairs down until the boss falls. The boss waits in that sam
 - **Event log.** Every message, including each line of battle text, goes into a scrollable log (`m`, or `M` during a battle), stamped with the turn number and grouped by depth. In a terminal wider than 104 columns or taller than 28 rows, the latest events also stay on screen in a side or bottom panel.
 - **Friendly characters (`&`).** Walk into one to talk. They stroll around the room they're in, but hold still while you stand next to them, and they never block a passage.
   - The **sage** gives advice on depth 1.
-  - A **merchant** buys and sells on every even depth, a couple of steps from the stairs down. You sell from your inventory screen, with the merchant's price next to each item. On a boss level, the merchant waits where you arrive instead.
+  - A **merchant** buys and sells on every even depth, a couple of steps from the stairs down. You sell from your inventory screen, with the merchant's price next to each item. A potion or scroll you haven't identified always sells for 10 gold, so the price gives nothing away. On a boss level, the merchant waits where you arrive instead.
   - Everyone else is rare: at most one turns up on a floor, in a room no monsters start in, and each appears only once per game. A **healer** also waits before a boss if you haven't met one yet.
   - **Healers** patch you up.
   - A **bard** always turns up somewhere on depths 2–5. The bard sings and sells a secret, and that secret is always which scroll is the scroll of identify (unless you already know it).

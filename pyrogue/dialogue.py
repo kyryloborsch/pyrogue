@@ -6,7 +6,7 @@ import textwrap
 
 from .characters import LORE, SONGS
 from .constants import FINAL_DEPTH, MAX_PACK
-from .items import Item, POTIONS, SCROLLS
+from .items import Item, POTIONS, SCROLLS, UNKNOWN_PRICE
 from .monsters import WEAK_SPOTS
 from .moves import MAX_SPELLS, MOVES, SPELLS
 from .text import COLORS
@@ -144,16 +144,19 @@ class TalkMixin:
                 if not npc.stock:
                     say("I'm all sold out! Come back... well, never, I suppose.")
                     continue
-                names = [self.item_name(it, reveal=True) for it in npc.stock]
+                stock = list(npc.stock)        # in co-op, others may buy while you choose
+                names = [self.item_name(it, reveal=True) for it in stock]
                 width = min(66, max(map(len, names)))
                 opts = [f'{name[:width]:<{width}} {self.price(it):>4}g'
-                        for name, it in zip(names, npc.stock)] + ['Back']
+                        for name, it in zip(names, stock)] + ['Back']
                 i = self.npc_ask(npc, f'Take a look! (You have {p.gold} gold.)', opts)
-                if i == len(npc.stock):
+                if i == len(stock):
                     continue
-                it = npc.stock[i]
+                it = stock[i]
                 cost = self.price(it)
-                if p.gold < cost:
+                if it not in npc.stock:
+                    say('Oh! Someone just bought that one, I\'m afraid.')
+                elif p.gold < cost:
                     say("Ah, you can't afford that, I'm afraid.")
                 elif len(p.pack) >= MAX_PACK:
                     say('Your pack is full! Sell me something first.')
@@ -174,7 +177,10 @@ class TalkMixin:
                 return
 
     def offer(self, it):
-        """What a merchant pays for one of an item."""
+        """What a merchant pays for one of an item. A potion or scroll you haven't
+        identified fetches the same as any other, so selling can't tell you what it is."""
+        if it.kind in ('potion', 'scroll') and it.sub not in SPELLS and it.sub not in self.known:
+            return UNKNOWN_PRICE // 3
         return max(1, self.price(it) // 3)
 
     def sell_screen(self, npc):
