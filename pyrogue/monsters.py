@@ -144,7 +144,7 @@ class Monster:
         self.type, *self.moves = MONSTER_INFO[name]
         self.parts = BODY_PLANS.get(name) or BODY_PLANS[self.type]
         self.weak = WEAK_SPOTS.get(name)         # None: it has no weak spot
-        self.power = lo * 2 + 2
+        self.power = lo * 3 // 2 + 2             # to hit: grows with the depth it lives at
         self.level = max(1, lo * 2 - 1 + random.randint(0, 2))
         deeper = max(0, depth - lo)                           # tougher the deeper they live
         hp = int(hp * MONSTER_HP_SCALE * (1 + 0.08 * deeper))
