@@ -15,6 +15,7 @@ from .world import BOSSES
 
 
 THROW_ACCURACY = 90             # base chance (%) a thrown potion hits, like a move's acc
+HELD_DAMAGE = 2 / 3             # share of a blow you take on a turn lost to a status
 
 
 class BattleMixin:
@@ -48,7 +49,7 @@ class BattleMixin:
         self.flush_battle_msgs()
         if caught:
             self.say(f'{self.name} was caught asleep!')
-            self.foes_attack(False)
+            self.foes_attack(False, held=True)
             self.flush_battle_msgs()
         outcome = None
         while self.foes and not self.game_over:
@@ -105,7 +106,7 @@ class BattleMixin:
 
             if self.clear_fainted():          # the target, or every foe a spell hit
                 break
-            self.foes_attack(guarding)
+            self.foes_attack(guarding, held)
             if self.game_over or self.clear_fainted():
                 break
             self.battle_world_turn()
@@ -157,10 +158,12 @@ class BattleMixin:
             self.say(f'{self.name} turned to face the {self.called(self.foe)}!')
         return not self.foes
 
-    def foes_attack(self, guarding):
+    def foes_attack(self, guarding, held=False):
+        """Every foe takes its turn. held: you lost your turn to a status, which leaves you
+        limp, and their blows land a third softer (HELD_DAMAGE)."""
         for f in list(self.foes):
             if f.hp > 0:
-                self.foe_turn(f, guarding)
+                self.foe_turn(f, guarding, held)
             if self.game_over:
                 return
 
@@ -369,18 +372,18 @@ class BattleMixin:
         if effect and random.randint(1, 100) <= effect[1]:
             self.inflict(m, effect[0], say)
 
-    def foe_turn(self, m, guarding):
+    def foe_turn(self, m, guarding, held=False):
         say = self.say
         if 'boss' in m.flags and not m.phased and m.hp <= m.max_hp // 2:
             self.boss_phase(m, say)
         if not self.foe_held(m, say):
             for _ in range(2 if 'enraged' in m.flags else 1):
-                self.foe_attack(m, guarding)
+                self.foe_attack(m, guarding, held)
                 if self.game_over:
                     return
         self.status_damage(m, say)
 
-    def foe_attack(self, m, guarding):
+    def foe_attack(self, m, guarding, held=False):
         p = self.player
         say = self.say
         special = random.random() < 0.3
@@ -393,6 +396,8 @@ class BattleMixin:
             dmg = int(dmg * 1.5)
         if guarding:
             dmg = max(1, dmg // 2)
+        if held:
+            dmg = max(1, round(dmg * HELD_DAMAGE))
         if p.barrier:                                 # blocks a third of the blow
             dmg = max(1, dmg - dmg // 3)
         p.hp = max(0, p.hp - dmg)
@@ -411,17 +416,18 @@ class BattleMixin:
             say('You were burned!')
         if special and 'frost' in m.flags:
             if random.random() < 0.3 and not p.frozen:
-                p.frozen = 1
-                say('You were frozen solid!')
+                if not self.shrug_off('frost'):
+                    p.frozen = 1
+                    say('You were frozen solid!')
             else:
                 chill = random.randint(2, 5)
                 p.hp = max(0, p.hp - chill)
                 self.damage_fx('player', chill, 'cyan')
                 say('You were chilled to the bone!')
-        if special and 'paralyze' in m.flags and not p.paralyzed:
+        if special and 'paralyze' in m.flags and not p.paralyzed and not self.shrug_off('paralysis'):
             p.paralyzed = 1
             say('You are paralyzed! You will lose your next move!')
-        if special and 'confuse' in m.flags and not p.confused:
+        if special and 'confuse' in m.flags and not p.confused and not self.shrug_off('confusion'):
             p.confused = random.randint(3, 6)
             say('You became confused!')
         if p.hp <= 0:

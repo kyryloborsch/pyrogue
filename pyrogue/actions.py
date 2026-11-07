@@ -2,7 +2,7 @@
 
 import random
 
-from .constants import DIRS, DOOR, FINAL_DEPTH, FLOOR, POOL, STAIRS
+from .constants import DIRS, FINAL_DEPTH, FLOOR, POOL, STAIRS
 from .items import HIDDEN_ITEM_CHANCE, Item
 from .monsters import Monster, NOISE_MEMORY
 from .text import an
@@ -49,7 +49,7 @@ class ActionsMixin:
                 self.hurt(sum(random.randint(1, 6) for _ in range(2)), name)
                 if name == 'lava':
                     p.burn = max(p.burn, random.randint(3, 5))
-                else:
+                elif not self.shrug_off('cold'):
                     p.frozen = max(p.frozen, random.randint(1, 3))
             return bool(p.confused)     # stumbling into a wall still costs a turn
         trap = self.traps.get((nx, ny))
@@ -117,6 +117,14 @@ class ActionsMixin:
                  'onto the floor!')
         return True
 
+    def shrug_off(self, what):
+        """A ring of free action may stop a status that would cost you turns. True if it
+        does (and says so)."""
+        if random.random() * 100 >= self.player.ring('free action'):
+            return False
+        (self.say if self.foes else self.msg)(f'Your ring flashes, and you shake off the {what}!')
+        return True
+
     def hurt(self, dmg, cause):
         p = self.player
         p.hp = max(0, p.hp - dmg)
@@ -154,14 +162,15 @@ class ActionsMixin:
         elif kind == 'frost':
             self.msg('A blast of freezing air engulfs you!')
             self.hurt(random.randint(4, 12) + self.depth // 2, 'a frost trap')
-            if not self.game_over:
+            if not self.game_over and not self.shrug_off('cold'):
                 p.frozen = max(p.frozen, random.randint(2, 4))
                 self.msg('You are frozen in place!')
         elif kind == 'teleport':
             p.x, p.y = self.free_spot(random.choice(self.rooms))
-            p.confused += random.randint(4, 8)
             self.compute_fov()
             self.msg('You step on a teleport trap! The world blurs and spins around you.')
+            if not self.shrug_off('dizziness'):
+                p.confused += random.randint(4, 8)
         elif kind == 'alarm':
             for m in self.monsters:
                 m.alert(NOISE_MEMORY)
@@ -173,7 +182,10 @@ class ActionsMixin:
                 self.monsters.append(m)
             self.msg('A loud alarm rings out! Monsters come running from all over the level.')
         elif kind == 'sleep':
-            self.msg('A cloud of sleeping gas engulfs you. You fall asleep...')
+            self.msg('A cloud of sleeping gas engulfs you.')
+            if self.shrug_off('sleeping gas'):
+                return
+            self.msg('You fall asleep...')
             self.asleep, battles = True, self.battles
             for _ in range(random.randint(5, 10)):
                 if self.game_over or self.battles != battles:   # attacked in your sleep
@@ -187,25 +199,6 @@ class ActionsMixin:
             self.new_level()
             self.hurt(random.randint(2, 8) + self.depth // 3, 'a fall')
             self.arrive()
-
-    def run(self, dx, dy):
-        p = self.player
-        for step in range(80):
-            if self.game_over or (step and (self.visible_monsters() or self.msgs)):
-                break
-            nx, ny = p.x + dx, p.y + dy
-            if step and (self.monster_at(nx, ny) or self.npc_at(nx, ny)):
-                break
-            trap = self.traps.get((nx, ny))
-            if trap and trap.found:
-                if not step:
-                    self.msg(f'There is {an(trap.name)} in the way.')
-                break
-            if not self.player_move(dx, dy):
-                break
-            self.end_turn()
-            if self.tiles[p.y][p.x] in (DOOR, STAIRS):
-                break
 
     def rest(self):
         p = self.player

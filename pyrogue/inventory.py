@@ -5,9 +5,12 @@ import random
 import textwrap
 
 from .constants import (
-    ARROWS, CANCEL_KEYS, CONFIRM_KEYS, ITEM_LETTERS, MAP_H, MAP_W, MAX_PACK, ROCK, STAIRS
+    CANCEL_KEYS, CONFIRM_KEYS, ITEM_LETTERS, MAP_H, MAP_W, MAX_PACK, ROCK, STAIRS
 )
-from .items import CATEGORIES, ITEM_NOTES, Item, POTION_PRICES, SCROLL_PRICES, STACKABLE
+from .items import (
+    CATEGORIES, ITEM_NOTES, MAX_RINGS, RINGS, Item, POTION_PRICES, SCROLL_PRICES, STACKABLE,
+    ring_bonus, ring_tag
+)
 from .monsters import NOISE_MEMORY
 from .moves import MOVES, SPELLS, field_spell, move_notes
 from .player import xp_needed
@@ -32,6 +35,8 @@ class ItemsMixin:
             return an(f'{it.sub} (spell +{it.magic + it.ench}{slots})')
         if it.kind == 'weapon':
             return an(f'{it.sub} (dmg {it.dmg[0] + it.ench}-{it.dmg[1] + it.ench})')
+        if it.kind == 'ring':
+            return f'a ring of {it.sub} ({ring_tag(it)})'
         if it.kind == 'armor':                     # 'plate mail', not 'a plate mail'
             return f'{it.sub} (def {it.ac + it.ench})'
         noun = it.kind if n == 1 else it.kind + 's'
@@ -51,6 +56,8 @@ class ItemsMixin:
             s += ' (in hand)'
         if it is self.player.armor:
             s += ' (being worn)'
+        if it in self.player.rings:
+            s += ' (worn)'
         return s
 
     def price(self, it):
@@ -62,6 +69,8 @@ class ItemsMixin:
             base = SCROLL_PRICES[it.sub]
         elif it.kind == 'food':
             base = 15
+        elif it.kind == 'ring':
+            base = 250 if it.sub == 'memory' else 60 + it.ench * 50
         elif it.kind == 'weapon':
             base = (it.dmg[0] + it.dmg[1]) * 6 + it.magic * 25 + it.ench * 30 + it.slots * 60
         else:
@@ -139,7 +148,7 @@ class ItemsMixin:
                              None if field_spell(name) and where != 'sealed' else 'dim'))
         for kind, heading in CATEGORIES.items():
             items = [it for it in self.pack_order() if it.kind == kind and (not only or only(it))]
-            if in_battle and kind == 'armor':      # no changing armor mid-fight
+            if in_battle and kind in ('armor', 'ring'):    # no changing these mid-fight
                 continue
             if items:
                 rows.append((heading, None, 'yellow'))
@@ -170,6 +179,9 @@ class ItemsMixin:
                         f'but barely hurts in melee ({it.dmg[0]}-{it.dmg[1]}).')
             return (f'Physical weapon: STRIKE and POWER SMASH hit for {it.dmg[0] + it.ench}-'
                     f'{it.dmg[1] + it.ench} with it, before your strength and level.')
+        if it.kind == 'ring':
+            worn = f' You can wear {MAX_RINGS} rings at once.'
+            return f'Ring: {ring_tag(it)}. It {RINGS[it.sub][2]}.{worn}'
         if it.kind == 'armor':
             return (f'Armor: gives {it.ac + it.ench} defense (def). Each point makes you harder '
                     f'to hit. You have {p.ac}.')
@@ -184,9 +196,12 @@ class ItemsMixin:
 
     def item_actions(self, it, in_battle):
         """What can be done with an item: [(label, action)]."""
+        worn = it in self.player.rings
         use = {'potion': ('Drink', self.drink), 'scroll': ('Read', self.read_scroll),
                'food': ('Eat', self.eat_food), 'weapon': ('Wield', self.wield_item),
-               'armor': ('Wear', self.wear_item)}[it.kind]
+               'armor': ('Wear', self.wear_item),
+               'ring': ('Remove', self.remove_ring) if worn else ('Put on', self.put_on_ring)
+               }[it.kind]
         acts = [use]
         if it is self.player.weapon or it is self.player.armor:
             acts = []
@@ -275,15 +290,15 @@ class ItemsMixin:
                     return result
                 continue
             k = self.scr.getch()
-            ch = ARROWS.get(k) or (chr(k) if 0 < k < 256 else '')
+            ch = chr(k) if 0 < k < 256 else ''
             lettered = {self.letter(rows[i][1][1]): n for n, i in enumerate(picks)
                         if rows[i][1][0] == 'item'}
-            if ch in lettered:                        # an item's letter picks it at once
-                cur, jump = lettered[ch], True
-            elif ch == 'k':
+            if k == curses.KEY_UP:
                 cur = (cur - 1) % len(picks)
-            elif ch == 'j':
+            elif k == curses.KEY_DOWN:
                 cur = (cur + 1) % len(picks)
+            elif ch in lettered:                      # an item's letter picks it at once
+                cur, jump = lettered[ch], True
             elif ch in CANCEL_KEYS or ch == 'i':
                 return None
             elif ch in CONFIRM_KEYS or k == curses.KEY_ENTER:
@@ -377,8 +392,9 @@ class ItemsMixin:
             p.str = max(3, p.str - random.randint(1, 3))
             self.msg('You feel very sick now.')
         elif kind == 'confusion':
-            p.confused += random.randint(8, 16)
             self.msg("Wait, what's going on here? Huh? What? Who?")
+            if not self.shrug_off('confusion'):
+                p.confused += random.randint(8, 16)
         elif kind == 'raise level':
             p.xp = max(p.xp, xp_needed(p.level))
             self.msg('You suddenly feel much more skillful.')
@@ -517,11 +533,40 @@ class ItemsMixin:
         self.msg(f'You are now wearing {self.item_name(it)}.')
         return True
 
+    def put_on_ring(self, it):
+        p = self.player
+        if len(p.rings) >= MAX_RINGS:
+            self.msg(f'You are already wearing {MAX_RINGS} rings. Take one off first.')
+            return False
+        p.rings = [*p.rings, it]
+        self.ring_changed(it, 1)
+        self.msg(f'You put on {self.item_name(it)}.')
+        return True
+
+    def remove_ring(self, it):
+        p = self.player
+        p.rings = [r for r in p.rings if r is not it]
+        self.ring_changed(it, -1)
+        self.msg(f'You take off {self.item_name(it)}.')
+        return True
+
+    def ring_changed(self, it, sign):
+        """Rings of vitality and wisdom raise your maximums while you wear them."""
+        p = self.player
+        if it.sub == 'vitality':
+            p.max_hp += sign * ring_bonus(it)
+            p.hp = max(1, min(p.max_hp, p.hp + max(0, sign * ring_bonus(it))))
+        elif it.sub == 'wisdom':
+            p.max_mp += sign * ring_bonus(it)
+            p.mp = min(p.max_mp, p.mp)
+
     def drop_item(self, it):
         p = self.player
         if self.item_at(p.x, p.y) or self.tiles[p.y][p.x] == STAIRS:
             self.msg('There is already something there.')
             return False
+        if it in p.rings:
+            self.remove_ring(it)
         if it is p.weapon:
             p.weapon = None
         if it is p.armor:

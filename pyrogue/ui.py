@@ -16,7 +16,7 @@ from .world import TRAPS, environment
 # The map legend, in the order it's listed. A symbol joins it the first time it's on the map.
 LEGEND = {
     '@': 'you', '&': 'friend', '>': 'stairs', '!': 'potion', '?': 'scroll', ')': 'weapon',
-    ']': 'armor', '^': 'trap', ':': 'food', '*': 'gold', '"': 'Amulet', '+': 'door',
+    ']': 'armor', '=': 'ring', '^': 'trap', ':': 'food', '*': 'gold', '"': 'Amulet', '+': 'door',
     '#': 'corridor', '.': 'floor', '-|': 'wall', '%': 'rock', '~lava': 'lava',
     '~icy water': 'icy water', '0': 'pillar',
 }
@@ -32,16 +32,16 @@ class UIMixin:
         self.put(y + h - 1, x, '└' + '─' * (w - 2) + '┘')
 
     def select(self, draw, n, cols=1, keys=None):
-        """Cursor menu: arrows/hjkl move, Enter/space/z pick, Esc/x cancel.
+        """Cursor menu: arrows move, Enter/space/z pick, Esc/x cancel.
         `keys` maps extra hotkeys to the value select() should return."""
         cur = 0
         rows = (n + cols - 1) // cols
         while True:
             draw(cur)
             k = self.scr.getch()
-            ch = ARROWS.get(k) or (chr(k) if 0 < k < 256 else '')
-            if ch in ('h', 'l', 'k', 'j'):
-                dx, dy = DIRS[ch]
+            ch = chr(k) if 0 < k < 256 else ''
+            if k in ARROWS:
+                dx, dy = DIRS[ARROWS[k]]
                 r, c = divmod(cur, cols)
                 nxt = ((r + dy) % rows) * cols + (c + dx) % cols
                 if nxt < n:
@@ -321,12 +321,11 @@ class UIMixin:
         self.wait_key()
 
     HELP = [
-        'COMMANDS                                               y k u',
-        '  h j k l y u b n   move (or arrow keys / numpad)       \\|/',
-        '  H J K L Y U B N   run in that direction             h-@-l',
-        '  . or 5            rest one turn                       /|\\',
-        '  z                 rest until HP and MP are full      b j n',
-        '  s                 search for traps in sight (and items, in rooms)',
+        'COMMANDS                                               7 8 9',
+        '  arrows / numpad   move (two arrows at once: diagonal) \\|/',
+        '  . or 5            rest one turn                      4-@-6',
+        '  z                 rest until HP and MP are full       /|\\',
+        '  s                 search for traps and items         1 2 3',
         '  >                 go down stairs (walk onto an item to pick it up)',
         '  i  inventory: use, wield, wear or drop items; cast HEAL, MEDITATE, BARRIER',
         '  m  event log (all that happened)',
@@ -334,11 +333,11 @@ class UIMixin:
         '  Press two arrow keys together (like up + left) to move diagonally.',
         'BATTLES, TRAPS & TALKING',
         '  Bump a monster to fight. In battle, M opens the event log.',
-        '  In menus: arrows/hjkl move the cursor, Enter/space/z choose, Esc/x go back.',
+        '  In menus: arrows move the cursor, Enter/space/z choose, Esc/x go back.',
         '  Walk into a friendly character (&) to talk to them.',
         '  STRIKE and POWER SMASH are aimed. Hit a monster\'s weak spot for extra damage.',
         '  Traps are hidden and each goes off only once. Known traps (^) warn you first.',
-        f'  Spells cost MP and come from scrolls. You can know {MAX_SPELLS} (more with some staffs).',
+        f'  Spells cost MP and come from scrolls. You know {MAX_SPELLS} (more with staffs, rings).',
         'SYMBOLS',                    # filled in with the ones found so far (help_lines)
         '',
         '',

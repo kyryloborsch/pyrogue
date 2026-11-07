@@ -1,5 +1,6 @@
 """The player character."""
 
+from .items import ring_bonus
 from .moves import MAX_SPELLS, SPELLS
 
 
@@ -10,6 +11,8 @@ def xp_needed(level):
 
 
 class Player:
+    rings = ()                       # rings being worn (a list once one is put on)
+
     def __init__(self):
         self.x = self.y = 0
         self.hp = self.max_hp = 16
@@ -39,7 +42,12 @@ class Player:
 
     @property
     def ac(self):
-        return self.armor.ac + self.armor.ench if self.armor else 0
+        armor = self.armor.ac + self.armor.ench if self.armor else 0
+        return armor + self.ring('protection')
+
+    def ring(self, kind):
+        """What the rings of a kind being worn add up to."""
+        return sum(ring_bonus(r) for r in self.rings if r.sub == kind)
 
     @property
     def str_bonus(self):
@@ -51,8 +59,9 @@ class Player:
 
     @property
     def spell_slots(self):
-        """How many spells you can hold: MAX_SPELLS, plus any the wielded weapon holds."""
-        return MAX_SPELLS + (self.weapon.slots if self.weapon else 0)
+        """How many spells you can hold: MAX_SPELLS, plus any the wielded weapon and rings of
+        memory hold."""
+        return MAX_SPELLS + (self.weapon.slots if self.weapon else 0) + self.ring('memory')
 
     @property
     def ready_spells(self):
@@ -78,13 +87,14 @@ class Player:
     def melee_bonus(self):
         """Extra damage every physical blow gets as you level up: 1, plus 1 per 2 levels.
         A magic weapon gets none, so it still barely hurts in melee."""
-        return 0 if self.weapon and self.weapon.magic else 1 + self.level // 2
+        level = 0 if self.weapon and self.weapon.magic else 1 + self.level // 2
+        return level + self.ring('might')
 
     @property
     def spell_power(self):
-        """Extra damage a magic weapon adds to every attack spell."""
+        """Extra damage a magic weapon and rings of power add to every attack spell."""
         w = self.weapon
-        return w.magic + w.ench if w and w.magic else 0
+        return (w.magic + w.ench if w and w.magic else 0) + self.ring('power')
 
     def restore_mp(self, amount=None):
         self.mp = self.max_mp if amount is None else min(self.max_mp, self.mp + amount)

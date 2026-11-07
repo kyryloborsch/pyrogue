@@ -9,8 +9,8 @@ from .actions import ActionsMixin
 from .battle import BattleMixin
 from .characters import BARD_BY
 from .constants import (
-    ARROW_CHORDS, ARROWS, CHORD_DELAY, CORRIDOR, DIRS, DOOR, FLOOR, LOG_SIZE, MAP_H, MAP_W,
-    NUMPAD, WALKABLE
+    ARROW_CHORDS, ARROWS, CHORD_DELAY, CHORD_STEPS, CORRIDOR, DIRS, DOOR, FLOOR,
+    KEYPAD_DIAGONALS, LOG_SIZE, MAP_H, MAP_W, NUMPAD, WALKABLE
 )
 from .dialogue import TalkMixin
 from .dungeon import DungeonMixin
@@ -154,7 +154,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
                 return
         else:
             p.regen += 1
-            if p.regen >= max(4, 18 - p.level) and p.hp < p.max_hp:
+            if p.regen >= max(2, 18 - p.level - 3 * p.ring('regeneration')) and p.hp < p.max_hp:
                 p.hp += 1
                 p.regen = 0
             p.mana_regen += 1
@@ -336,20 +336,20 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
             self.scr.timeout(-1)
         diagonal = ARROW_CHORDS.get(frozenset((ARROWS[k], ARROWS.get(k2))))
         if diagonal:
-            return ord(diagonal)
+            return diagonal
         if k2 != -1:
             self.pending_key = k2
         return k
 
     def handle_key(self, k):
         """Perform a command. Returns True if it used up a turn."""
-        ch = ARROWS.get(k) or (chr(k) if 0 < k < 256 else '')
-        ch = NUMPAD.get(ch, ch)
-        if ch in DIRS:
-            return self.player_move(*DIRS[ch])
-        if ch.lower() in DIRS and ch.isupper():
-            self.run(*DIRS[ch.lower()])
-            return False
+        ch = chr(k) if 0 < k < 256 else ''
+        step = (ARROWS.get(k) or KEYPAD_DIAGONALS.get(k) or CHORD_STEPS.get(k)
+                or NUMPAD.get(ch))
+        if step:
+            return self.player_move(*DIRS[step])
+        if k == curses.KEY_B2:                        # the numpad's 5 with Num Lock off
+            return True
         actions = {
             '>': self.descend, 'i': self.inventory,
         }

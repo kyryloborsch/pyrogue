@@ -23,8 +23,8 @@ MOVES = {
     'BARRIER':     {'type': 'support', 'acc': 100, 'mp': 4, 'barrier': 4},
     'DRAIN LIFE':  {'type': 'dark',    'acc': 95,  'mp': 5, 'dice': 2, 'drain': 0.5},
 }
-MAX_SPELLS = 3                   # spells known at once, on top of STRIKE and POWER SMASH;
-                                 # some magic weapons hold more (Item.slots)
+MAX_SPELLS = 2                   # spells known at once, on top of STRIKE and POWER SMASH;
+                                 # some magic weapons (Item.slots) and rings of memory hold more
 FIELD_EFFECTS = ('heal', 'mana', 'barrier')   # spells with these work outside battle too
 # Spells are only learned from rare spell scrolls: (first depth the scroll turns up, price)
 SPELLS = {

@@ -49,12 +49,13 @@ A boss level has no stairs down until the boss falls. The boss waits in that sam
 
 ## Features
 
-- **Pokémon-style battles.** Bump into a monster to start a battle. Moves have types, accuracy, mana costs and status effects (burn, poison, freeze, sleep, paralyze, confusion). Some types are strong or weak against certain kinds of monsters, but a weak spot only deals 1.5× damage, so it helps without deciding the fight. When someone is hit, their sprite jolts and flashes, and the damage floats up beside it (yellow for a critical hit or weak spot, other colors for burns, poison, frost and confusion).
+- **Pokémon-style battles.** Bump into a monster to start a battle. Moves have types, accuracy, mana costs and status effects (burn, poison, freeze, sleep, paralyze, confusion). Some types are strong or weak against certain kinds of monsters, but a weak spot only deals 1.5× damage, so it helps without deciding the fight. On a turn you lose to a status (frozen, paralyzed, stumbling while confused or caught asleep), you go limp and take a third less damage. When someone is hit, their sprite jolts and flashes, and the damage floats up beside it (yellow for a critical hit or weak spot, other colors for burns, poison, frost and confusion).
 - **Monster modifiers.** About one ordinary monster in seven is born different, and battle shows it before its name: TOUGH (1.25× HP), FIERCE (1.15× damage), ARMORED (+2 defense), SWIFT (hits a little more often and is a little harder to run from) or FEEBLE (a bit weaker all round). The stronger ones give more EXP, and a feeble one gives less. Bosses never get one.
 - **Aimed attacks and weak spots.** STRIKE and POWER SMASH are aimed at a body part. The head is harder to hit but hurts more, and wings and tails are harder to hit too. Most monsters have one hidden weak spot that takes 1.5× damage. Once you hit it, the aim menu marks it for that kind of monster for the rest of the run. The undead resist normal blows and have no weak spot at all, while elementals and demons take 1.25× damage from them.
 - **Mana.** Every spell costs MP from a single pool. STRIKE and POWER SMASH are free. MP slowly comes back as you explore and rest, refills when you level up, and can be restored with a potion of mana, a healer, or the MEDITATE spell.
-- **One inventory (`i`).** Everything you carry is on one screen, sorted into Weapons, Armor, Potions, Scrolls and Food, with your spells on top. Pick a line, or press an item's letter to jump straight to it, then choose what to do with it: drink, read, eat, wield, wear or drop. The inventory stays open after you use something, with what happened shown at the bottom. Each use still takes a turn, and the inventory closes by itself if a monster comes into view or attacks. The letters skip `i`, `j`, `k`, `x` and `z`, which already move, choose and close in the inventory. A scroll of identify opens the same screen, showing only what you haven't identified yet. If you back out, you keep the scroll. In battle, BAG opens the same screen with your weapons, potions, scrolls and food, so you can swap weapons mid-fight, and potions can be thrown at the foe as well as drunk. Like using anything else from the BAG, it takes your turn. A thrown potion of poison or confusion works on the foe, healing heals it (but burns the undead), and once you see what a potion does, you know it. The line at the bottom says what the highlighted thing does, once you know.
-- **Spells.** Rare spell scrolls teach 12 spells, from Fire Bolt and Heal to Chain Lightning (hits every foe), Bewilder (confuses a foe) and Meditate (restores MP). You can know 3 spells at once. To learn a fourth, you forget one, or keep the scroll for later. Half the magic weapons you find hold 1 to 3 extra spells while you wield them. If you put such a weapon away, the spells it held stay known but are sealed (they can't be cast) until you wield a weapon that holds them again. HEAL, MEDITATE and BARRIER also work outside battle: cast them from the inventory, which lists your spells with their MP costs and what they do.
+- **One inventory (`i`).** Everything you carry is on one screen, sorted into Weapons, Armor, Rings, Potions, Scrolls and Food, with your spells on top. You can carry 30 things (a stack of potions, scrolls or food counts as one). Pick a line, or press an item's letter to jump straight to it, then choose what to do with it: drink, read, eat, wield, wear, put on, take off or drop. The inventory stays open after you use something, with what happened shown at the bottom. Each use still takes a turn, and the inventory closes by itself if a monster comes into view or attacks. The letters skip `i`, `x` and `z`, which close and choose in the inventory, and go on in capitals after `y`. A scroll of identify opens the same screen, showing only what you haven't identified yet. If you back out, you keep the scroll. In battle, BAG opens the same screen with your weapons, potions, scrolls and food, so you can swap weapons mid-fight, and potions can be thrown at the foe as well as drunk. Like using anything else from the BAG, it takes your turn. A thrown potion of poison or confusion works on the foe, healing heals it (but burns the undead), and once you see what a potion does, you know it. The line at the bottom says what the highlighted thing does, once you know.
+- **Spells.** Rare spell scrolls teach 12 spells, from Fire Bolt and Heal to Chain Lightning (hits every foe), Bewilder (confuses a foe) and Meditate (restores MP). You can know 2 spells at once. To learn a third, you forget one, or keep the scroll for later. Half the magic weapons you find hold 1 or 2 extra spells while you wield them, and a rare ring of memory holds one more while you wear it. If you put such a weapon or ring away, the spells it held stay known but are sealed (they can't be cast) until you can hold them again. HEAL, MEDITATE and BARRIER also work outside battle: cast them from the inventory, which lists your spells with their MP costs and what they do.
+- **Rings (`=`).** Rare rings give a bonus while you wear them, and you can wear two at once: protection (+defense), vitality (+max HP), wisdom (+max MP), power (+spell damage), might (+damage for STRIKE and POWER SMASH) and regeneration (HP comes back faster). The deeper you find one, the stronger it is. A ring of free action gives a 35% chance per point of power to shake off freezing, paralysis, confusion and sleeping gas, and at 100% nothing can hold you. Rarest of all is the ring of memory, which lets you hold one more spell. Rings stay on in battle; you put them on and take them off from the inventory.
 - **Physical and magic weapons.** Swords, maces and spears make STRIKE and POWER SMASH hit harder, and those blows also get stronger as you level up (+1 damage, plus 1 more every 2 levels). Wands and staffs barely hurt in melee, but add their power to every attack spell. Enchanting a weapon improves whichever of these it does. The deeper you go, the better the weapons you find: stronger kinds turn up more often, and they come with +1 more enchantment for every 5 depths.
 - **Event log.** Every message, including each line of battle text, goes into a scrollable log (`m`, or `M` during a battle), stamped with the turn number and grouped by depth. In a terminal wider than 104 columns or taller than 28 rows, the latest events also stay on screen in a side or bottom panel.
 - **Friendly characters (`&`).** Walk into one to talk. They stroll around the room they're in, but hold still while you stand next to them, and they never block a passage.
@@ -76,11 +77,11 @@ A boss level has no stairs down until the boss falls. The boss waits in that sam
 Press `?` in the game for the full list.
 
 ```
-Movement            y k u        Shift + direction    run
-(or arrows/numpad)   \|/         . or 5               rest one turn
-                    h-@-l        z                    rest until HP & MP full
-                     /|\         s                    search for traps & items
-                    b j n        >                    go down stairs
+Movement            7 8 9        . or 5               rest one turn
+(arrows or numpad)   \|/         z                    rest until HP & MP full
+                    4-@-6        s                    search for traps & items
+                     /|\         >                    go down stairs
+                    1 2 3
 ```
 
 | Key       | Action                                  |
@@ -90,9 +91,9 @@ Movement            y k u        Shift + direction    run
 | `?`       | help                                    |
 | `Q`       | save & quit, or abandon the run         |
 
-You pick things up by walking onto them. To move diagonally with the arrow keys, press two of them together, like `↑` and `←` for up-left.
+You move with the arrow keys or the numpad; letter keys don't move you. To move diagonally with the arrow keys, press two of them together, like `↑` and `←` for up-left. The numpad's corner keys step diagonally too, with Num Lock on or off. You pick things up by walking onto them.
 
-In menus, arrows or `hjkl` move the cursor, `Enter`/`Space`/`z` choose, and `Esc`/`x` go back. In battle, `M` opens the event log.
+In menus, the arrow keys move the cursor, `Enter`/`Space`/`z` choose, and `Esc`/`x` go back. In battle, `M` opens the event log.
 
 ## Saving
 
@@ -114,7 +115,7 @@ The save lives in `saves/save.pickle`, in the game's folder next to `rogue.py`, 
 The help screen (`?`) lists the map symbols you've found so far, adding each one the first time it shows up on your map. All of them:
 
 ```
-@ you      & friend   > stairs   ! potion   ? scroll   ) weapon   ] armor
+@ you      & friend   > stairs   ! potion   ? scroll   ) weapon   ] armor   = ring
 ^ trap     : food     * gold     " Amulet   + door     # corridor
 % cave wall           ~ lava / icy water   0 pillar
 ```

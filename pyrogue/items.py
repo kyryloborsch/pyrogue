@@ -7,9 +7,25 @@ WEAPONS = [('dagger', 1, 4, 0), ('spear', 2, 6, 0), ('mace', 2, 8, 0),
            ('wand', 1, 2, 2), ('oak staff', 1, 4, 3), ('crystal rod', 1, 3, 5),
            ('runed staff', 2, 5, 7)]
 # Deeper down, better kinds of weapon turn up more often and come better enchanted (+1 per
-# WEAPON_ENCH_EVERY depths). SPELL_SLOT_CHANCE of the magic ones found hold 1-3 extra spells.
+# WEAPON_ENCH_EVERY depths). SPELL_SLOT_CHANCE of the magic ones found hold 1-2 extra spells.
 WEAPON_ENCH_EVERY = 5
 SPELL_SLOT_CHANCE = 0.5
+# Rings, worn MAX_RINGS at a time: kind -> (bonus per point of the ring's power, tag, what
+# it does, how often it turns up). A ring's power (its ench) grows with depth: 1, plus 1 per
+# RING_POWER_EVERY depths, plus 0 or 1. The rare ring of memory is always +1 spell slot.
+RINGS = {
+    'protection':   (1, 'def', 'adds to your defense', 6),
+    'vitality':     (5, 'max HP', 'raises your max HP', 6),
+    'wisdom':       (3, 'max MP', 'raises your max MP', 6),
+    'power':        (1, 'spell', 'adds to the damage of every attack spell', 6),
+    'might':        (1, 'dmg', 'adds to the damage of STRIKE and POWER SMASH', 6),
+    'regeneration': (1, 'regen', 'makes your HP come back faster', 6),
+    'memory':       (1, 'spell slot', 'lets you hold one more spell', 1),
+    'free action':  (35, '% resist', 'may shake off freezing, paralysis, confusion and sleep '
+                     '(at 100%, nothing holds you)', 4),
+}
+MAX_RINGS = 2
+RING_POWER_EVERY = 6
 ARMORS = [('leather armor', 2), ('studded leather', 3), ('ring mail', 3),
           ('scale mail', 4), ('chain mail', 5), ('splint mail', 6), ('plate mail', 7)]
 POTIONS = ['healing', 'extra healing', 'mana', 'strength', 'poison', 'confusion', 'raise level']
@@ -26,14 +42,14 @@ POTION_COLORS = ['red', 'blue', 'green', 'amber', 'violet', 'turquoise', 'black'
                  'pink', 'white', 'orange', 'grey', 'golden']
 SYLLABLES = ['ab', 'zok', 'ra', 'nix', 'vel', 'tor', 'um', 'ka', 'zim', 'ol',
              'eth', 'qua', 'bar', 'sno', 'pli', 'xu', 'mor', 'fen', 'gah', 'ip']
-ITEM_CHARS = {'potion': '!', 'scroll': '?', 'weapon': ')', 'armor': ']',
+ITEM_CHARS = {'potion': '!', 'scroll': '?', 'weapon': ')', 'armor': ']', 'ring': '=',
               'food': ':', 'gold': '*', 'amulet': '"'}
 ITEM_COLORS = {'potion': 'magenta', 'scroll': 'cyan', 'weapon': 'cyan', 'armor': 'cyan',
-               'food': 'yellow', 'gold': 'yellow', 'amulet': 'magenta'}
+               'ring': 'yellow', 'food': 'yellow', 'gold': 'yellow', 'amulet': 'magenta'}
 STACKABLE = {'potion', 'scroll', 'food'}
 # the inventory's sections, in order: kind -> heading
-CATEGORIES = {'weapon': 'WEAPONS', 'armor': 'ARMOR', 'potion': 'POTIONS', 'scroll': 'SCROLLS',
-              'food': 'FOOD'}
+CATEGORIES = {'weapon': 'WEAPONS', 'armor': 'ARMOR', 'ring': 'RINGS', 'potion': 'POTIONS',
+              'scroll': 'SCROLLS', 'food': 'FOOD'}
 # what the inventory says about a potion or scroll once you know what it is
 ITEM_NOTES = {
     'healing': 'Heals some HP and cures ailments.',
@@ -71,6 +87,18 @@ def make_weapon(name, ench=0):
     it = Item('weapon', name, ench=ench)
     it.dmg, it.magic = (lo, hi), magic
     return it
+
+
+def ring_bonus(it):
+    """How much a ring gives, in the units of its tag."""
+    bonus = RINGS[it.sub][0] * it.ench
+    return min(100, bonus) if it.sub == 'free action' else bonus
+
+
+def ring_tag(it):
+    """A ring's bonus as shown, like '+2 def' or '+70% resist'."""
+    tag = RINGS[it.sub][1]
+    return f'+{ring_bonus(it)}{"" if tag.startswith("%") else " "}{tag}'
 
 
 def make_armor(name, ench=0):

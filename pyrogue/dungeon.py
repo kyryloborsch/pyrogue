@@ -10,8 +10,8 @@ from .constants import (
     PILLAR, POOL, ROCK, STAIRS, VWALL, WALKABLE, WALLS
 )
 from .items import (
-    ARMORS, Item, POTIONS, POTION_WEIGHTS, SCROLLS, SCROLL_WEIGHTS, SPELL_SLOT_CHANCE,
-    WEAPON_ENCH_EVERY, WEAPONS, make_armor, make_weapon
+    ARMORS, Item, POTIONS, POTION_WEIGHTS, RING_POWER_EVERY, RINGS, SCROLLS, SCROLL_WEIGHTS,
+    SPELL_SLOT_CHANCE, WEAPON_ENCH_EVERY, WEAPONS, make_armor, make_weapon
 )
 from .monsters import MONSTERS, Monster
 from .moves import SPELLS, SPELL_SCROLL_CHANCE
@@ -650,8 +650,12 @@ class DungeonMixin:
             return Item('food')
         if roll <= 86:
             return self.random_weapon()
-        ench = random.choices([-1, 0, 1, 2], [2, 5, 3, 1])[0]
-        return make_armor(random.choice(ARMORS)[0], ench)
+        if roll <= 96:
+            ench = random.choices([-1, 0, 1, 2], [2, 5, 3, 1])[0]
+            return make_armor(random.choice(ARMORS)[0], ench)
+        kind = random.choices(list(RINGS), [r[3] for r in RINGS.values()])[0]
+        ench = 1 if kind == 'memory' else 1 + self.depth // RING_POWER_EVERY + random.randint(0, 1)
+        return Item('ring', kind, ench=ench)
 
     def random_weapon(self):
         """A weapon fit for this depth: the deeper, the better the kinds that turn up and the
@@ -663,7 +667,7 @@ class DungeonMixin:
         ench = random.choices([-1, 0, 1, 2], [2, 5, 3, 1])[0] + self.depth // WEAPON_ENCH_EVERY
         it = make_weapon(name, ench)
         if magic and random.random() < SPELL_SLOT_CHANCE:
-            it.slots = random.choices((1, 2, 3), (4, 2, 1))[0]
+            it.slots = random.choices((1, 2), (2, 1))[0]
         return it
 
     # ------------------------------------------------------------------ fov

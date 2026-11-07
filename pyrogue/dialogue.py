@@ -102,7 +102,7 @@ class TalkMixin:
             elif c == 1:
                 say('You know STRIKE and POWER SMASH. New spells come only from rare spell '
                     f'scrolls, and you can hold {MAX_SPELLS} spells at most. Learn another and '
-                    'you must forget one, unless you carry a staff or wand made to hold more.')
+                    'you must forget one, unless you carry a staff, wand or ring made to hold more.')
                 say('Swords and maces make your STRIKEs hit harder. Wands and staffs barely '
                     'scratch a foe, but they make every spell you cast hit harder.')
                 say('FIRE scorches beasts and giants, but dragons shrug it off. HOLY light '
@@ -181,7 +181,7 @@ class TalkMixin:
         """Sell from the inventory screen, one thing after another. Returns the gold made,
         or None if there is nothing the merchant will buy."""
         p = self.player
-        sellable = lambda it: it is not p.weapon and it is not p.armor
+        sellable = lambda it: it is not p.weapon and it is not p.armor and it not in p.rings
         if not any(map(sellable, p.pack)):
             return None
         made = [0]
