@@ -37,7 +37,7 @@ g = Game(Scr(), 'Test', seed='abc')                # g.new_level(), g.battle(m),
 
 Write such scratch scripts outside the repo, and run them with `PYROGUE_SAVE` set (see below).
 
-Saves go to `saves/save.pickle` (gitignored) or `$PYROGUE_SAVE`. Set `PYROGUE_SAVE` to a scratch path when testing so the user's real save isn't touched.
+Saves go to `saves/save.pickle` (gitignored) or `$PYROGUE_SAVE`. The host's co-op save is `coop.pickle` in the same folder. Set `PYROGUE_SAVE` to a scratch path when testing so the user's real save isn't touched.
 
 ## Architecture
 

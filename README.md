@@ -114,7 +114,7 @@ When everyone is in, the host presses Enter. Games go through the game's relay o
 - **Tougher monsters.** Monsters are made for the party: each hero past the first gives them 60% more HP, 20% more damage and a better chance to hit. A foe fighting two or more heroes may use its special move on the whole party at once (a splash attack, 1 in 4, or 2 in 5 for a boss), and each hero takes 60% of the blow. Everyone in the fight gets the EXP for each monster beaten; the gold goes to whoever struck the last blow. RUN takes only you out of the fight.
 - **Stairs.** A hero who goes down the stairs (or falls through a trapdoor) waits at the bottom until the rest of the party follows, then everyone arrives on the next depth together.
 - **Falling.** A hero who dies watches the rest of the party play on. The run ends when the last hero falls, or for everyone when someone picks up the Amulet.
-- **Leaving.** `Q` leaves the game. If your connection drops, or you leave while still alive, join again with the same name to take your hero back. Co-op games aren't saved: when the host quits, the game is over.
+- **Leaving.** `Q` leaves the game. If your connection drops, or you leave while still alive, join again with the same name to take your hero back. When the host closes the game, it's saved (see [Saving](#saving)).
 
 ### The relay
 
@@ -133,11 +133,18 @@ There is one saved game, and you only get one life. When you start the game with
 - If you press Ctrl-C or close the terminal, the game saves where you were at the start of that turn.
 - When you die, win or abandon the run, the save is deleted.
 
+Co-op games have a save of their own, kept by the host, so playing co-op never touches your single-player save.
+
+- The co-op game saves itself every time the party reaches a new depth, and when the host closes it (also with Ctrl-C or by closing the terminal).
+- Host again with `--host` to continue it, or to start a new game, which deletes the save. If you're not already named as one of its heroes, you pick which one you are.
+- Your friends join as usual, with the names their heroes had. Only the saved heroes still standing can come back, and each one comes back where they stood. A hero whose player doesn't come along can still join later.
+- When the run is won, or every hero has fallen, the co-op save is deleted.
+
 ## Hall of fame
 
 Every run that ends (by dying, winning or giving up) goes into `saves/scores.json`, next to the save. A run scores its gold plus 100 points for each depth reached, and 5000 more for escaping with the Amulet. The best 9 appear after the ending screen, with their dates, turns and seeds, so you can replay a good dungeon with `--seed`. The file keeps the best 100 runs.
 
-The save lives in `saves/save.pickle`, in the game's folder next to `rogue.py`, and git ignores it. Set `PYROGUE_SAVE` to use a different file. A save from an older, incompatible version of the game is moved aside as `save.pickle.bad`, and a new game starts. Saves are Python pickles, so only load save files you made yourself.
+The save lives in `saves/save.pickle`, in the game's folder next to `rogue.py`, and git ignores it. The co-op save is `coop.pickle`, beside it. Set `PYROGUE_SAVE` to use a different file (the co-op save then sits in the same folder). A save from an older, incompatible version of the game is moved aside as `save.pickle.bad`, and a new game starts. Saves are Python pickles, so only load save files you made yourself.
 
 ## Map symbols
 
@@ -172,7 +179,7 @@ The help screen (`?`) lists the map symbols you've found so far, adding each one
 | `battle.py` | Battles and the battle screen |
 | `dialogue.py` | Conversations with the friendly characters |
 | `ui.py` | Drawing the map, menus, the event log, help and the ending screen |
-| `save.py` | Saving, loading and deleting the saved game |
+| `save.py` | Saving, loading and deleting the saved games |
 | `scores.py` | The hall of fame |
 | `coop.py` | Co-op: shared turns and battles, the stairs, falling and leaving |
 | `net.py` | Co-op over the network: the host's server, each player's screen, the relay connection, and the client |

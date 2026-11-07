@@ -105,9 +105,57 @@ def main(scr, args):
     return None
 
 
+def coop_save_choice(scr, name):
+    """Offer to continue the co-op save. Returns (saved state and dice or None, the name to
+    play as), or None to leave."""
+    if not save.exists(save.coop_path()):
+        return None, name
+    try:
+        state, dice = save.read(save.coop_path())
+    except save.SaveError as e:
+        save.set_aside(save.coop_path())
+        title_screen(scr, [f'Your saved co-op game could not be loaded: {e}.',
+                           'It was moved aside, so a new game will begin.', '',
+                           'Press any key.'])
+        return None, name
+    heroes = [h for h in state['heroes'] if h.state != 'dead' and h.player.hp > 0]
+    party = ', '.join(f'{h.name} (level {h.player.level})' for h in heroes)
+    while True:
+        k = title_screen(scr, [f'Saved co-op game on depth {state["depth"]}:', f'  {party}', '',
+                               '  c) continue', '  n) new game (the saved game is lost)',
+                               '  q) leave'])
+        if k in (ord('q'), ord('Q'), 27):
+            return None
+        if k in (ord('n'), ord('N')):
+            k = title_screen(scr, ['Really give up the saved co-op game for good? (y/n)'])
+            if k in (ord('y'), ord('Y')):
+                save.delete(save.coop_path())
+                return None, name
+            continue
+        if k not in (ord('c'), ord('C'), 10, 13, ord(' ')):
+            continue
+        mine = next((h for h in heroes if name and h.name.lower() == name.lower()), None)
+        if mine:
+            return (state, dice), mine.name
+        if len(heroes) == 1:
+            return (state, dice), heroes[0].name
+        letters = 'abcd'
+        k = title_screen(scr, ['Which hero are you?', ''] +
+                         [f'  {c}) {h.name}' for c, h in zip(letters, heroes)])
+        if 0 < k < 256 and chr(k).lower() in letters[:len(heroes)]:
+            return (state, dice), heroes[letters.index(chr(k).lower())].name
+
+
 def play_online(scr, args):
     """Host a co-op game (and play in it), or join one."""
-    name = args.name or ask_name(scr)
+    name = args.name
+    saved = None
+    if args.host:
+        choice = coop_save_choice(scr, name)
+        if choice is None:
+            return None
+        saved, name = choice
+    name = name or ask_name(scr)
     if args.join and args.relay and net.is_room_code(args.join):
         return net.Client(scr, lambda: net.connect_relay(args.relay, args.join),
                           f'room {args.join.upper()} on the relay', name).run()
@@ -118,20 +166,26 @@ def play_online(scr, args):
             return f'"{args.join}" is not an address. Try something like 192.168.1.20:7878.'
         return net.Client(scr, lambda: net.connect_tcp(host, port), f'{host}:{port}',
                           name).run()
-    server = net.Server(args.host, args.seed, args.relay)
+    server = net.Server(args.host, args.seed, args.relay, saved)
     try:
         server.start()
     except OSError as e:
         return f'Could not host a game on port {args.host} ({e.strerror or e}).'
-    message = net.Client(scr, lambda: net.connect_tcp('127.0.0.1', args.host), 'your game',
-                         name).run()
-    # the game lives in this process: keep it going while the others read their endings
-    scr.timeout(500)
-    while server.game and server.players():
-        k = title_screen(scr, ['Waiting for the other players to finish...',
-                               '(press q to close the game for everyone now)'])
-        if k in (ord('q'), ord('Q')):
-            break
+    try:
+        message = net.Client(scr, lambda: net.connect_tcp('127.0.0.1', args.host),
+                             'your game', name).run()
+        # the game lives in this process: keep it going while the others read their endings
+        scr.timeout(500)
+        while server.game and server.players():
+            k = title_screen(scr, ['Waiting for the other players to finish...',
+                                   '(press q to close the game for everyone now)'])
+            if k in (ord('q'), ord('Q')):
+                break
+    finally:
+        server.close()
+    if server.game and server.game.resumable():
+        message = (message + '\n' if message else '') + \
+            'The co-op game was saved. Host again with --host to pick it up.'
     return message
 
 

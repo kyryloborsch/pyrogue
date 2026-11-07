@@ -12,8 +12,9 @@ every hero in that battle has acted, and then the foes strike back."""
 
 import curses
 import random
+import threading
 
-from . import scores
+from . import save, scores
 from .battle import BattleMixin
 from .constants import DIRS, STAIRS
 from .game import Game
@@ -49,10 +50,43 @@ class CoopGame(Game):
         self.cv = cv
         self.busy = False            # in the middle of a battle round, a turn or a new level
         self.clock = 0               # hero actions since the monsters last moved
+        self.returning = {}          # a saved game's heroes not back yet: name -> where they were
         for h, color in zip(heroes, HERO_COLORS):
             h.color = color
         self.start(heroes, seed)
         self.toughen()
+
+    # ------------------------------------------------------------- saving
+    @classmethod
+    def load(cls, state, dice, cv):
+        """A co-op game picked up from its save. Every hero still standing waits for their
+        player to join again (see rejoin)."""
+        game = cls.__new__(cls)
+        vars(game).update(state)
+        random.setstate(dice)
+        game.cv, game._ctx = cv, threading.local()
+        game.busy, game.game_over, game.snapshot = False, None, None
+        game.returning = {}
+        for h in game.heroes:
+            if h.state in ('active', 'stairs'):
+                game.returning[h.name] = h.state
+                h.state = 'gone'
+            h.battle = h.fresh = h.fallen = h.fx = h.view = h.pending_key = None
+            h.feed = []
+            h.done = h.fighting = h.guarding = h.held = h.ending = False
+        return game
+
+    def resumable(self):
+        """Can this run be picked up again? Not once it's won, or everyone has fallen."""
+        return self.game_over != ('won',) and any(
+            h.state != 'dead' and h.player.hp > 0 for h in self.heroes)
+
+    def save_party(self):
+        """Keep the run in the co-op save, or drop the save once the run is over for good."""
+        if self.resumable():
+            save.write(save.snapshot(self), save.coop_path())
+        else:
+            save.delete(save.coop_path())
 
     def toughen(self):
         """Make the monsters that are new on the level a match for the party."""
@@ -246,25 +280,37 @@ class CoopGame(Game):
                         self.hurt(h.fall, 'a fall')
                         h.fall = 0
                     self.arrive()
+            self.returning = {}                 # where the missing stood is on the old depth
         finally:
             self.busy = False
         self.check_state()
+        if not self.game_over:
+            self.save_party()
 
     def rejoin(self, h):
-        """A player who dropped out takes their hero back, next to someone still playing."""
-        if h.player.hp <= 0:
+        """A player who dropped out takes their hero back, next to someone still playing.
+        A hero from a saved game comes back where they stood."""
+        p = h.player
+        if p.hp <= 0:
             h.state = 'dead'
             return
-        friend = next(iter(self.party()), None)
-        if friend is None:
+        was = self.returning.pop(h.name, None)
+        if was == 'stairs':
             h.state = 'stairs'
+            self.check_state()
             return
+        if was != 'active' or not self.walkable(p.x, p.y) or self.occupied(p.x, p.y):
+            friend = next(iter(self.party()), None)
+            if friend is None:
+                h.state = 'stairs'
+                self.check_state()
+                return
+            p.x, p.y = friend.player.x, friend.player.y
+            spots = [(friend.player.x + dx, friend.player.y + dy) for dx, dy in DIRS.values()]
+            spots = [s for s in spots if self.walkable(*s) and not self.occupied(*s)]
+            if spots:
+                p.x, p.y = random.choice(spots)
         h.state, h.done = 'active', False
-        h.player.x, h.player.y = friend.player.x, friend.player.y
-        spots = [(friend.player.x + dx, friend.player.y + dy) for dx, dy in DIRS.values()]
-        spots = [s for s in spots if self.walkable(*s) and not self.occupied(*s)]
-        if spots:
-            h.player.x, h.player.y = random.choice(spots)
         with self.as_hero(h):
             self.compute_fov()
             self.msg(f'Welcome back, {h.name}! You are on depth {self.depth}.')

@@ -1,4 +1,5 @@
-"""Saving and loading. There is one saved game, kept until its hero dies, wins or gives up."""
+"""Saving and loading. There is one saved game, kept until its hero dies, wins or gives up,
+and one saved co-op game, kept by the host."""
 
 import os
 import pickle
@@ -22,15 +23,20 @@ def save_path():
     return os.environ.get('PYROGUE_SAVE') or os.path.join(SAVE_DIR, 'save.pickle')
 
 
+def coop_path():
+    """Where the co-op save lives: coop.pickle, beside the other save."""
+    return os.path.join(os.path.dirname(save_path()), 'coop.pickle')
+
+
 def snapshot(game):
     """The whole game (but not the screen), with the dice, as bytes ready to write."""
-    state = {k: v for k, v in vars(game).items() if k not in ('snapshot', '_ctx')}
+    state = {k: v for k, v in vars(game).items() if k not in ('snapshot', '_ctx', 'cv')}
     return pickle.dumps({'version': SAVE_VERSION, 'state': state, 'random': random.getstate()})
 
 
-def write(data):
+def write(data, path=None):
     """Write a snapshot. A half-written file never replaces a good save."""
-    path = save_path()
+    path = path or save_path()
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
     tmp = path + '.tmp'
     with open(tmp, 'wb') as f:
@@ -46,14 +52,14 @@ def summary(state):
     return name, player.level, state['depth']
 
 
-def exists():
-    return os.path.exists(save_path())
+def exists(path=None):
+    return os.path.exists(path or save_path())
 
 
-def read():
+def read(path=None):
     """The saved state and dice. Raises SaveError if the save can't be used."""
     try:
-        with open(save_path(), 'rb') as f:
+        with open(path or save_path(), 'rb') as f:
             data = pickle.load(f)
     except Exception as e:
         raise SaveError(f'the save file is damaged ({e.__class__.__name__})') from e
@@ -62,17 +68,17 @@ def read():
     return data['state'], data['random']
 
 
-def delete():
+def delete(path=None):
     try:
-        os.remove(save_path())
+        os.remove(path or save_path())
     except FileNotFoundError:
         pass
 
 
-def set_aside():
+def set_aside(path=None):
     """Move an unusable save out of the way (keeping it, just in case) so a new game can start."""
-    path = save_path()
+    path = path or save_path()
     try:
         os.replace(path, path + '.bad')
     except OSError:
-        delete()
+        delete(path)

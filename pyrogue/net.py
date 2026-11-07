@@ -436,11 +436,13 @@ class Seat:
 class Server:
     """The host's game: a lobby until the host starts, then the co-op game."""
 
-    def __init__(self, port=DEFAULT_PORT, seed=None, relay=None):
+    def __init__(self, port=DEFAULT_PORT, seed=None, relay=None, saved=None):
+        """saved: (state, dice) of a co-op save to pick up, instead of a new game."""
         self.port, self.seed, self.relay_base = port, seed, relay
         self.cv = threading.Condition(threading.Lock())
         self.seats = []
         self.game = None
+        self.saved = CoopGame.load(*saved, self.cv) if saved else None
         self.sock = None
         self.relay = None
         self.offline = None              # why there's no room on the relay, if there isn't
@@ -487,6 +489,14 @@ class Server:
                     return scr.bye(f'The game is full ({MAX_PLAYERS} players).')
                 if any(s.name.lower() == name.lower() for s in self.seats):
                     return scr.bye(f'Someone called {name} is already here. Pick another name.')
+                if self.saved:
+                    hero = self.saved_hero(name)
+                    if hero is None:
+                        names = ', '.join(h.name for h in self.saved.heroes
+                                          if h.name in self.saved.returning)
+                        return scr.bye(f'This is a saved game. Join with the name of one of '
+                                       f'its heroes: {names}.')
+                    name = hero.name
                 seat = Seat(name, scr)
                 self.seats.append(seat)
             else:
@@ -524,12 +534,21 @@ class Server:
             self.game.leave(hero)
             raise
 
+    def saved_hero(self, name):
+        """The saved game's hero still waiting for a player called name, if any."""
+        return next((h for h in self.saved.heroes if h.name.lower() == name.lower()
+                     and h.name in self.saved.returning), None)
+
     def lobby(self, seat):
         scr = seat.scr
         host = seat is self.seats[0]
         scr.erase()
         width = scr.getmaxyx()[1] - 6
         scr.addstr(2, 4, 'ROGUE-LIKE: co-op lobby', curses.A_BOLD)
+        if self.saved:
+            names = ', '.join(h.name for h in self.saved.heroes if h.name in self.saved.returning)
+            scr.addstr(17, 4, f'A saved game on depth {self.saved.depth}. Its heroes: '
+                              f'{names}'[:width])
         if self.relay:
             scr.addstr(3, 4, f'Room code: {self.relay.code}', curses.A_BOLD)
         if host:
@@ -562,11 +581,31 @@ class Server:
             self.begin()
 
     def begin(self):
-        heroes = [Hero(s.name, s.scr) for s in self.seats]
-        for s, h in zip(self.seats, heroes):
-            s.hero = h
-        self.game = CoopGame(heroes, self.seed, self.cv)
+        if self.saved:
+            game = self.saved
+            game.busy = True                 # nobody goes down the stairs before all are back
+            for s in self.seats:
+                s.hero = self.saved_hero(s.name)
+                s.hero.scr = s.scr
+                game.rejoin(s.hero)
+            game.busy = False
+            self.game = game
+            game.check_state()
+        else:
+            heroes = [Hero(s.name, s.scr) for s in self.seats]
+            for s, h in zip(self.seats, heroes):
+                s.hero = h
+            self.game = CoopGame(heroes, self.seed, self.cv)
         self.cv.notify_all()
+
+    def close(self):
+        """The host is closing the game: keep it in the co-op save if it can go on later."""
+        if self.cv.acquire(timeout=5):
+            try:
+                if self.game:
+                    self.game.save_party()
+            finally:
+                self.cv.release()
 
     def players(self):
         """How many players are still connected."""
