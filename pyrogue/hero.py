@@ -38,7 +38,6 @@ class Hero:
         self.fighting = False        # inside the battle loop
         self.guarding = self.held = False   # how this battle round's blows land on the hero
         self.feed = []               # battle lines and hits still to be shown to this player
-        self.replaying = False       # showing the feed right now
         self.fall = 0                # damage still to take from a trapdoor fall
         self.result = None           # ('died', reason) once fallen
         self.ending = False          # looking at the ending screens

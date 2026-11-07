@@ -602,11 +602,17 @@ class CoopGame(Game):
         return False, None
 
     # ------------------------------------------------- what the party sees
+    def replaying(self):
+        """Is this thread showing its player their feed (play_feed)? It's the thread that
+        counts, not the hero: another hero's thread may be acting for this one meanwhile, and
+        must not draw on their screen or wait for their keys."""
+        return getattr(self._ctx, 'replaying', False)
+
     def say(self, text, log=True):
         """A battle line, for everyone in the battle (or just this hero if log is False). It
         shows when each player's own thread gets to it (play_feed)."""
         h = self.hero
-        if h.replaying:
+        if self.replaying():
             return super().say(text, log)
         if not h.battle:
             if log:
@@ -620,7 +626,7 @@ class CoopGame(Game):
 
     def damage_fx(self, who, dmg, color='red', note=''):
         h = self.hero
-        if h.replaying:
+        if self.replaying():
             return super().damage_fx(who, dmg, color, note)
         if h.battle:
             for x in ([h] if who == 'player' else h.battle.heroes):
@@ -628,7 +634,7 @@ class CoopGame(Game):
 
     def animate_hp(self):
         h = self.hero
-        if h.replaying:
+        if self.replaying():
             return super().animate_hp()
         if h.battle:
             for x in h.battle.heroes:
@@ -642,7 +648,7 @@ class CoopGame(Game):
         if not (self.foe or self.fallen):
             h.feed = []
             return
-        h.replaying = True
+        self._ctx.replaying = True
         try:
             while h.feed:
                 kind, *args = h.feed.pop(0)
@@ -656,7 +662,7 @@ class CoopGame(Game):
                 else:
                     BattleMixin.animate_hp(self)
         finally:
-            h.replaying = False
+            self._ctx.replaying = False
         if self.foe:
             self.shown_hp = [self.foe.hp, self.player.hp]
 
@@ -669,7 +675,8 @@ class CoopGame(Game):
         b = self.hero.battle
         if m in self.monsters:
             self.monsters.remove(m)
-        b.foes.remove(m)
+        if m in b.foes:
+            b.foes.remove(m)
         for x in b.heroes:
             x.fallen = m
 
