@@ -187,7 +187,7 @@ class BattleMixin:
 
     def foe_held(self, m, say):
         """Sleep, freezing, paralysis and confusion can cost a monster its turn. True if
-        it does."""
+        it does. A confused monster never hurts you: it hurts itself or stumbles about."""
         who = f'The {self.called(m)}'
         for status, held, ends in (('sleep', 'is fast asleep.', 'woke up!'),
                                    ('freeze', 'is frozen solid!', 'thawed out!')):
@@ -218,6 +218,9 @@ class BattleMixin:
                 if m is self.foe:
                     self.damage_fx('enemy', dmg, 'magenta')
                 say(f'{who} is confused! It hurt itself in its confusion!')
+                return True
+            else:
+                say(f'{who} is confused! It stumbled about in a daze.')
                 return True
         return False
 

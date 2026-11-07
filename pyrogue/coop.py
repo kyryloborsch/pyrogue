@@ -368,8 +368,13 @@ class CoopGame(Game):
             self.leave(h)
 
     def wait_screen(self, lines):
-        """The map with a note on top, while there's nothing for this hero to do."""
-        self.draw(lines)
+        """The map with a note on top, while there's nothing for this hero to do. A fallen
+        hero watches a teammate's battle instead, while there is one."""
+        friend = self.watched() if self.hero.state == 'dead' else None
+        if friend:
+            self.watch(friend)
+        else:
+            self.draw(lines)
         self.scr.timeout(500)
         self.scr.stale, self.scr.refreshable = False, True
         try:
@@ -380,6 +385,46 @@ class CoopGame(Game):
         ch = chr(k) if 0 < k < 256 else ''
         if ch in ('m', 'p', 'Q'):
             self.handle_key(k)
+        elif ch == 'n' and friend:                   # watch the next teammate's battle
+            friends = self.fighting_friends()
+            self._ctx.watching = friends[(friends.index(friend) + 1) % len(friends)].name
+
+    # ------------------------------------------------------------ watching
+    @property
+    def scr(self):
+        """The screen being drawn on: this hero's own, even while drawing another's battle
+        for them to watch."""
+        return getattr(self._ctx, 'screen', None) or self.hero.scr
+
+    @scr.setter
+    def scr(self, value):
+        self.hero.scr = value
+
+    def fighting_friends(self):
+        return [h for h in self.party() if h.battle and h.battle.foes]
+
+    def watched(self):
+        """The teammate whose battle a fallen hero is watching, if anyone is fighting."""
+        friends = self.fighting_friends()
+        if not friends:
+            return None
+        name = getattr(self._ctx, 'watching', None)
+        friend = next((h for h in friends if h.name == name), friends[0])
+        self._ctx.watching = friend.name
+        return friend
+
+    def watch(self, friend):
+        """Show this hero friend's battle, as friend sees it, with their latest battle line."""
+        fx, self._ctx.screen = friend.fx, self.scr
+        more = '  n: next battle' if len(self.fighting_friends()) > 1 else ''
+        try:
+            with self.as_hero(friend):
+                self.fx = dict(fx) if fx else None     # drawing moves its number up a step
+                last = self.log[-1][2] if self.log else ''
+                self.draw_battle([last[:74], f'Watching {friend.name}.{more}  m: log  '
+                                             f'p: party  Q: leave'])
+        finally:
+            friend.fx, self._ctx.screen = fx, None
 
     def handle_key(self, k):
         ch = chr(k) if 0 < k < 256 else ''
