@@ -234,6 +234,8 @@ class VirtualScreen:
         self.delay = -1
         self.stop_check = None       # raises Stop from getch() when this returns True
         self.closed = False
+        self.stale = False           # the game changed since this screen was drawn
+        self.refreshable = False     # getch() should return KEY_RESIZE when it goes stale
         self.blank()
         self.frame, self.sent = None, None
         self.frame_ready = threading.Event()
@@ -277,6 +279,9 @@ class VirtualScreen:
         deadline = None if self.delay < 0 else time.monotonic() + self.delay / 1000
         while not self.keys:
             self.check()
+            if self.refreshable and self.stale:
+                self.stale = False
+                return curses.KEY_RESIZE
             if deadline is None:
                 self.cv.wait()
             else:

@@ -9,6 +9,7 @@ class Battle:
     def __init__(self, foes, heroes):
         self.foes = foes
         self.heroes = heroes
+        self.rounds = 0              # rounds fought (co-op heroes wait for the next one)
 
 
 class Hero:
@@ -32,7 +33,7 @@ class Hero:
         # co-op only
         self.color = color           # how the others see this hero's @
         self.state = 'active'        # 'active' | 'stairs' | 'dead' | 'gone'
-        self.done = False            # has picked this turn's action
+        self.done = False            # has acted in this battle round
         self.fresh = None            # a battle not yet opened: 'ambush', 'appeared' or 'join'
         self.fighting = False        # inside the battle loop
         self.guarding = self.held = False   # how this battle round's blows land on the hero

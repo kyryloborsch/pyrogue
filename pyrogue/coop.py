@@ -3,8 +3,12 @@ terminal.
 
 Every hero is played on its own thread, and all of them share one lock: the game code runs
 for one hero at a time. A hero's screen lets go of the lock while it waits for a key, so each
-player can sit in their own menu while the others play on. A turn ends once every hero on the
-map has acted: then the monsters, the battles and the hunger all move on together."""
+player can sit in their own menu while the others play on.
+
+Nobody waits for anybody while exploring: every step a hero takes moves the dungeon on, but
+only by a share of a turn. With three heroes on the map, the monsters take one step for every
+three steps the heroes take between them. Battles still go round by round: a round ends once
+every hero in that battle has acted, and then the foes strike back."""
 
 import curses
 import random
@@ -36,7 +40,8 @@ class CoopGame(Game):
 
     def __init__(self, heroes, seed, cv):
         self.cv = cv
-        self.busy = False            # in the middle of a world turn or a new level
+        self.busy = False            # in the middle of a battle round, a turn or a new level
+        self.clock = 0               # hero actions since the monsters last moved
         for h, color in zip(heroes, HERO_COLORS):
             h.color = color
         self.start(heroes, seed)
@@ -47,21 +52,26 @@ class CoopGame(Game):
 
     # ------------------------------------------------------------- turns
     def end_turn(self):
-        """This hero has acted: wait for the rest of the party, then the world moves on."""
+        """This hero has acted. Exploring, the dungeon moves on by a share of a turn right
+        away. In battle, wait for the others in it to act, and for the foes to strike back."""
         h = self.hero
         self.check_out()
-        turn, shown = self.turn, None
+        b = h.battle
+        if not b:
+            self.tick_player()
+            self.advance(1)
+            self.compute_fov()
+            self.changed()
+            self.check_out()
+            return
+        rounds, shown = b.rounds, None
         h.done = True
-        self.check_turn()
-        while self.turn == turn and h.state == 'active' and not self.game_over:
-            names = ', '.join(x.name for x in self.party() if not x.done)
+        self.check_round(b)
+        while b.rounds == rounds and h.battle is b and h.state == 'active' and not self.game_over:
+            names = ', '.join(x.name for x in b.heroes if not x.done and x.state == 'active')
             if names != shown:
                 shown = names
-                line = [f'Waiting for {names}...']
-                if h.battle:
-                    self.draw_battle(line)
-                else:
-                    self.draw(line)
+                self.draw_battle([f'Waiting for {names}...'])
             self.cv.wait()
             self.scr.flush()                 # what was typed while waiting isn't meant for now
             self.scr.check()
@@ -73,43 +83,90 @@ class CoopGame(Game):
         if self.game_over or h.state != 'active' or (h.battle and not h.fighting):
             raise Stop()
 
-    def check_turn(self):
-        """End the turn if everyone has acted, regroup the party once all are on the stairs,
-        and end the game once nobody is left."""
+    def advance(self, actions):
+        """Heroes took this many actions: the monsters move once per action of each hero on
+        the map."""
+        self.clock += actions
+        while self.clock >= max(1, len(self.party())):
+            self.clock -= max(1, len(self.party()))
+            self.world_turn()
+
+    def world_turn(self):
+        """The monsters and the friendly characters take a step."""
+        busy, self.busy = self.busy, True
+        try:
+            self.monsters_act()
+            self.npcs_act()
+            self.turn += 1
+            for h in self.party():
+                with self.as_hero(h):
+                    self.compute_fov()
+        finally:
+            self.busy = busy
+
+    def changed(self):
+        """Something moved: every player's map should show it."""
+        for h in self.heroes:
+            if h.scr:
+                h.scr.stale = True
+        self.cv.notify_all()
+
+    def check_round(self, b):
+        """End a battle round once everyone in it has acted: the foes strike back, and each
+        hero's round counts as an action that moves the dungeon on."""
+        heroes = [h for h in b.heroes if h.state == 'active']
+        if self.busy or not heroes or not all(h.done for h in heroes):
+            return
+        self.busy = True
+        try:
+            for h in heroes:
+                h.done = False
+            if b.foes:
+                self.battle_round(b)
+            for h in heroes:
+                if h.state == 'active':
+                    with self.as_hero(h):
+                        hp = h.player.hp
+                        self.tick_player()
+                        if h.battle and h.player.hp < hp:          # burns, or starving
+                            self.damage_fx('player', hp - h.player.hp)
+            b.rounds += 1
+            self.advance(len(heroes))
+        finally:
+            self.busy = False
+        self.check_state()
+        self.changed()
+
+    def check_state(self):
+        """Regroup the party once all are on the stairs, and end the game once nobody is
+        left."""
         if self.busy:
             return
-        party = self.party()
-        if party and all(h.done for h in party):
-            self.world_turn()
         living = [h for h in self.heroes if h.state in ('active', 'stairs')]
         if living and all(h.state == 'stairs' for h in living):
             self.regroup(living)
         if not living and not self.game_over:
             fallen = [h for h in self.heroes if h.result]
             self.game_over = fallen[-1].result if fallen else ('quit',)
-        self.cv.notify_all()
+        self.changed()
 
-    def world_turn(self):
-        self.busy = True
-        try:
-            for h in self.party():
-                h.done = False
-            for b in {id(h.battle): h.battle for h in self.party() if h.battle}.values():
-                self.battle_round(b)
-            self.monsters_act()
-            self.npcs_act()
-            for h in self.party():
-                with self.as_hero(h):
-                    hp = h.player.hp
-                    self.tick_player()
-                    if h.battle and h.player.hp < hp:          # burns, or starving
-                        self.damage_fx('player', hp - h.player.hp)
-            self.turn += 1
-            for h in self.party():
-                with self.as_hero(h):
-                    self.compute_fov()
-        finally:
-            self.busy = False
+    def rest(self):
+        """Rest a turn at a time, letting the others see the dungeon go by. Any key stops."""
+        p = self.player
+        if self.visible_monsters():
+            self.msg('You cannot rest with monsters nearby!')
+            return
+        for _ in range(500):
+            if (p.hp >= p.max_hp and p.mp >= p.max_mp) or self.msgs or self.visible_monsters():
+                break
+            self.end_turn()
+            self.draw(['Resting... (press any key to stop)'])
+            self.scr.timeout(60)
+            try:
+                if self.scr.getch() not in (-1, curses.KEY_RESIZE):
+                    break
+            finally:
+                self.scr.timeout(-1)
 
     def die(self, reason):
         h = self.hero
@@ -121,7 +178,7 @@ class CoopGame(Game):
             self.say(f'{h.name} fainted...')
         self.leave_battle(h, quiet=True)
         self.broadcast(f'{h.name} has fallen, killed by {reason}.', skip=h)
-        self.check_turn()
+        self.check_state()
 
     def broadcast(self, text, skip=None):
         """Party news, for every hero but skip."""
@@ -145,11 +202,12 @@ class CoopGame(Game):
     def to_stairs(self, news):
         """Leave the map and wait for the party below."""
         h = self.hero
+        self.leave_battle(h)                     # pulled into one on the way down
         h.state, h.done = 'stairs', False
         self.broadcast(news, skip=h)
         if any(x.state == 'active' for x in self.heroes):
             self.msg('You wait for the others at the bottom of the stairs.')
-        self.check_turn()
+        self.check_state()
 
     def regroup(self, heroes):
         """Everyone is on the stairs: the party arrives on the next depth together."""
@@ -169,7 +227,7 @@ class CoopGame(Game):
                     self.arrive()
         finally:
             self.busy = False
-        self.check_turn()
+        self.check_state()
 
     def rejoin(self, h):
         """A player who dropped out takes their hero back, next to someone still playing."""
@@ -190,6 +248,7 @@ class CoopGame(Game):
             self.compute_fov()
             self.msg(f'Welcome back, {h.name}! You are on depth {self.depth}.')
         self.broadcast(f'{h.name} is back.', skip=h)
+        self.changed()
 
     def leave(self, h):
         """The player left or lost their connection. A hero who is still standing waits
@@ -202,7 +261,7 @@ class CoopGame(Game):
             h.state, h.done = 'gone', False
             self.broadcast(f'{h.name} left the game.', skip=h)
         h.scr = None
-        self.check_turn()
+        self.check_state()
 
     # ----------------------------------------------------- the hero's loop
     def hero_loop(self, h):
@@ -222,7 +281,12 @@ class CoopGame(Game):
                         self.coop_battle()
                     else:
                         self.show()
-                        k = self.read_key()
+                        h.scr.stale = False
+                        h.scr.refreshable = True     # redraw whenever something moves
+                        try:
+                            k = self.read_key()
+                        finally:
+                            h.scr.refreshable = False
                         if k == curses.KEY_RESIZE or h.battle or h.state != 'active':
                             continue
                         if self.handle_key(k):
@@ -240,10 +304,12 @@ class CoopGame(Game):
         """The map with a note on top, while there's nothing for this hero to do."""
         self.draw(lines)
         self.scr.timeout(500)
+        self.scr.stale, self.scr.refreshable = False, True
         try:
             k = self.scr.getch()
         finally:
             self.scr.timeout(-1)
+            self.scr.refreshable = False
         ch = chr(k) if 0 < k < 256 else ''
         if ch in ('m', 'p', 'Q'):
             self.handle_key(k)
@@ -292,7 +358,7 @@ class CoopGame(Game):
     def hero_state(self, h):
         if h.state != 'active':
             return self.STATES[h.state]
-        return 'fighting' if h.battle else 'ready' if h.done else 'thinking'
+        return 'fighting' if h.battle else 'exploring'
 
     def party_lines(self, width):
         lines = []
@@ -350,11 +416,13 @@ class CoopGame(Game):
         b = h.battle
         if not b:
             return
-        h.battle, h.fresh = None, None
+        h.battle, h.fresh, h.done = None, None, False
         b.heroes.remove(h)
         if b.heroes and not quiet:
             with self.as_hero(b.heroes[0]):
                 self.say(f'{h.name.upper()} left the battle!')
+        if b.heroes:
+            self.check_round(b)                  # the rest may have been waiting on them
         elif escaped:
             for f in b.foes:
                 f.stun = 4
@@ -365,7 +433,7 @@ class CoopGame(Game):
             self.say(f'A {self.called(m)} joined the battle!')
 
     def battle_round(self, b):
-        """The foes' turn in a battle, during the world turn: each strikes a hero in it."""
+        """The foes' turn in a battle, once its heroes have acted: each strikes one of them."""
         for f in list(b.foes):
             heroes = [h for h in b.heroes if h.state == 'active']
             if not heroes:
@@ -564,7 +632,8 @@ class CoopGame(Game):
 
     def drop_foe(self, m):
         b = self.hero.battle
-        self.monsters.remove(m)
+        if m in self.monsters:
+            self.monsters.remove(m)
         b.foes.remove(m)
         for x in b.heroes:
             x.fallen = m
