@@ -7,6 +7,8 @@ import os
 import socket
 import ssl
 import struct
+import subprocess
+import sys
 import threading
 import time
 from urllib.parse import urlsplit
@@ -17,6 +19,30 @@ MAX_MESSAGE = 1 << 20
 
 class WebSocketError(Exception):
     pass
+
+
+MAC_ROOTS = '/System/Library/Keychains/SystemRootCertificates.keychain'
+
+
+def extra_roots():
+    """Root certificates for a Python that has none of its own, like Python from python.org
+    on a Mac before "Install Certificates.command": certifi's if it's installed, or else the
+    ones macOS itself trusts. None if there are none to be had."""
+    try:
+        import certifi
+        with open(certifi.where()) as f:
+            return f.read()
+    except (ImportError, OSError):
+        pass
+    if sys.platform == 'darwin':
+        try:
+            pem = subprocess.run(['security', 'find-certificate', '-a', '-p', MAC_ROOTS],
+                                 capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            pem = ''
+        if 'BEGIN CERTIFICATE' in pem:
+            return pem
+    return None
 
 
 def unmask(mask, data):
@@ -36,9 +62,7 @@ class WebSocket:
         secure = parts.scheme == 'wss'
         host, port = parts.hostname, parts.port or (443 if secure else 80)
         try:
-            sock = socket.create_connection((host, port), timeout=timeout)
-            if secure:
-                sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
+            sock = self.connect(host, port, secure, timeout)
         except ssl.SSLCertVerificationError as e:
             raise WebSocketError(
                 f'could not check {host}\'s certificate ({e.verify_message}). With Python from '
@@ -52,6 +76,28 @@ class WebSocket:
         path = (parts.path or '/') + (f'?{parts.query}' if parts.query else '')
         self.handshake(host if parts.port is None else f'{host}:{port}', path)
         sock.settimeout(None)
+
+    @staticmethod
+    def connect(host, port, secure, timeout):
+        """A socket to the server, wrapped in TLS if secure. If Python's own root certificates
+        can't vouch for the server (or it has none), try the system's."""
+        sock = socket.create_connection((host, port), timeout=timeout)
+        if not secure:
+            return sock
+        try:
+            return ssl.create_default_context().wrap_socket(sock, server_hostname=host)
+        except ssl.SSLCertVerificationError:
+            sock.close()
+            roots = extra_roots()
+            if not roots:
+                raise
+        context = ssl.create_default_context(cadata=roots)
+        sock = socket.create_connection((host, port), timeout=timeout)
+        try:
+            return context.wrap_socket(sock, server_hostname=host)
+        except OSError:
+            sock.close()
+            raise
 
     def handshake(self, host, path):
         key = base64.b64encode(os.urandom(16)).decode()
