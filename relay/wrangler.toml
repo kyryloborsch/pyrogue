@@ -1,0 +1,13 @@
+# The co-op relay: a Cloudflare Worker that passes messages between a host and the players
+# who join their game, so nobody has to open a port. Deploy it with `npx wrangler deploy`.
+name = "pyrogue-relay"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]

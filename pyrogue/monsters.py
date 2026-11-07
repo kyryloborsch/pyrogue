@@ -136,6 +136,7 @@ WEAK_SPOTS = {name: part for name, part in WEAK_SPOTS.items()
 
 class Monster:
     mod = None                       # its MODIFIERS key, if it has one
+    party = 0                        # co-op: how many heroes it was toughened for (0: not yet)
 
     def __init__(self, tpl, x, y, depth=0):
         ch, name, hp, ac, dmg, xp, lo, _hi, color, flags = tpl
@@ -143,7 +144,7 @@ class Monster:
         self.type, *self.moves = MONSTER_INFO[name]
         self.parts = BODY_PLANS.get(name) or BODY_PLANS[self.type]
         self.weak = WEAK_SPOTS.get(name)         # None: it has no weak spot
-        self.power = lo * 2 + 2
+        self.power = lo * 3 // 2 + 2             # to hit: grows with the depth it lives at
         self.level = max(1, lo * 2 - 1 + random.randint(0, 2))
         deeper = max(0, depth - lo)                           # tougher the deeper they live
         hp = int(hp * MONSTER_HP_SCALE * (1 + 0.08 * deeper))

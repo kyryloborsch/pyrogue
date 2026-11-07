@@ -16,6 +16,9 @@ from .world import BOSSES
 
 THROW_ACCURACY = 90             # base chance (%) a thrown potion hits, like a move's acc
 HELD_DAMAGE = 2 / 3             # share of a blow you take on a turn lost to a status
+SPLASH_DAMAGE = 0.6             # share of a blow each hero takes from a splash attack (co-op)
+PHYSICAL_DAMAGE = 1.15          # STRIKE and POWER SMASH hit this much harder
+SPELL_DAMAGE = 0.85             # attack spells hit this much softer
 
 
 class BattleMixin:
@@ -184,7 +187,7 @@ class BattleMixin:
 
     def foe_held(self, m, say):
         """Sleep, freezing, paralysis and confusion can cost a monster its turn. True if
-        it does."""
+        it does. A confused monster never hurts you: it hurts itself or stumbles about."""
         who = f'The {self.called(m)}'
         for status, held, ends in (('sleep', 'is fast asleep.', 'woke up!'),
                                    ('freeze', 'is frozen solid!', 'thawed out!')):
@@ -215,6 +218,9 @@ class BattleMixin:
                 if m is self.foe:
                     self.damage_fx('enemy', dmg, 'magenta')
                 say(f'{who} is confused! It hurt itself in its confusion!')
+                return True
+            else:
+                say(f'{who} is confused! It stumbled about in a daze.')
                 return True
         return False
 
@@ -329,12 +335,13 @@ class BattleMixin:
             return
         weak = part is not None and part == m.weak
         if 'mult' in info:
-            dmg = (random.randint(*p.weapon_dmg) + p.str_bonus + p.melee_bonus) * info['mult']
+            dmg = ((random.randint(*p.weapon_dmg) + p.str_bonus + p.melee_bonus) * info['mult']
+                   * PHYSICAL_DAMAGE)
             if part:
                 dmg *= PARTS[part][1] * (WEAK_SPOT_MULT if weak else 1)
         else:
-            dmg = (sum(random.randint(1, 6) for _ in range(info['dice'])) + p.level
-                   + p.spell_power)
+            dmg = ((sum(random.randint(1, 6) for _ in range(info['dice'])) + p.level
+                    + p.spell_power) * SPELL_DAMAGE)
         eff = self.effectiveness(info['type'], m)
         crit = random.random() < 1 / 16
         dmg = max(1, int(dmg * eff * (1.5 if crit else 1)))
@@ -383,17 +390,25 @@ class BattleMixin:
                     return
         self.status_damage(m, say)
 
-    def foe_attack(self, m, guarding, held=False):
+    def foe_attack(self, m, guarding, held=False, splash=False):
+        """splash: this hero's share of a special move that hits the whole party (co-op). It
+        has been announced already, and lands softer (SPLASH_DAMAGE)."""
         p = self.player
         say = self.say
-        special = random.random() < 0.3
-        say(f'The {self.called(m)} used {m.moves[1] if special else m.moves[0]}!')
+        special = splash or random.random() < 0.3
+        if not splash:
+            say(f'The {self.called(m)} used {m.moves[1] if special else m.moves[0]}!')
         if random.randint(1, 20) + m.power < 10 + p.ac:
-            say('But it missed!' if random.random() < 0.5 else 'It glanced off your armor!')
+            if splash:
+                say(f'{self.name} dodged it!')
+            else:
+                say('But it missed!' if random.random() < 0.5 else 'It glanced off your armor!')
             return
         dmg = random.randint(*m.dmg)
         if special:
             dmg = int(dmg * 1.5)
+        if splash:
+            dmg = max(1, round(dmg * SPLASH_DAMAGE))
         if guarding:
             dmg = max(1, dmg // 2)
         if held:
@@ -402,6 +417,8 @@ class BattleMixin:
             dmg = max(1, dmg - dmg // 3)
         p.hp = max(0, p.hp - dmg)
         self.damage_fx('player', dmg)
+        if splash:
+            say(f'{self.name} took {dmg} damage!')
         if guarding:
             self.say('Your guard softened the blow!')
         if special and 'poison' in m.flags and p.str > 3:
@@ -497,9 +514,7 @@ class BattleMixin:
         gold = random.randint(0, m.xp // 4)
         p.gold += gold
         self.say(f'The {self.called(m)} fainted!')
-        self.say(f'{self.name} gained {m.xp} EXP. Points!')
-        self.gain_xp(m.xp)
-        self.flush_battle_msgs()
+        self.share_xp(m)
         if gold:
             self.say(f'{self.name} picked up {gold} gold from the battle.')
         if 'boss' in m.flags:
@@ -519,6 +534,12 @@ class BattleMixin:
             it.x, it.y = m.x, m.y
             self.items.append(it)
             self.say(f'The {m.name} dropped something!')
+
+    def share_xp(self, m):
+        """Everyone who fought the monster gains its EXP."""
+        self.say(f'{self.name} gained {m.xp} EXP. Points!')
+        self.gain_xp(m.xp)
+        self.flush_battle_msgs()
 
     def battle_menu(self):
         opts = ['FIGHT', 'BAG', 'GUARD', 'RUN']
@@ -596,9 +617,9 @@ class BattleMixin:
             self.put(y, 0, '▓' * (79 if y == 23 else 80), COLORS['white'])
             if y % 2:
                 self.scr.refresh()
-                curses.napms(12)
+                self.pause(12)
         self.draw_battle()
-        curses.napms(150)
+        self.pause(150)
 
     # how a hit looks: frames of (sideways jolt, sprite color, spark drawn over the sprite)
     SHAKE = [(2, 'white', '*'), (-2, None, '+'), (1, 'white', '*'), (-1, None, ''), (0, None, '')]
@@ -611,20 +632,22 @@ class BattleMixin:
         for dx, tint, spark in self.SHAKE:
             self.fx = {'who': who, 'dx': dx, 'tint': tint or color, 'spark': spark}
             self.draw_battle()
-            curses.napms(45)
+            self.pause(45)
         self.fx = {'who': who, 'text': f'-{dmg}' + (f' {note}' if note else ''), 'color': color,
                    'rise': 0}
         self.animate_hp()
         while self.fx['rise'] < 8:          # let the number finish floating up
             self.draw_battle()
-            curses.napms(30)
+            self.pause(30)
         self.fx = None
         self.draw_battle()
 
-    def animate_hp(self):
-        if not self.foe:
-            return
-        targets = [self.foe.hp, self.player.hp]
+    def animate_hp(self, targets=None):
+        """Let the HP bars catch up with the HP, or with targets: [foe's HP, yours]."""
+        if targets is None:
+            if not self.foe:
+                return
+            targets = [self.foe.hp, self.player.hp]
         for _ in range(40):
             if self.shown_hp == targets:
                 break
@@ -634,7 +657,7 @@ class BattleMixin:
                     step = max(1, abs(diff) // 6)
                     self.shown_hp[i] += step if diff > 0 else -step
             self.draw_battle()
-            curses.napms(25)
+            self.pause(25)
         self.shown_hp = targets
 
     def say(self, text, log=True):
@@ -652,7 +675,8 @@ class BattleMixin:
             self.say(t, log=False)
 
     def draw_battle(self, text=None, more=False, extra=None):
-        m, p = self.foe or self.fallen, self.player
+        p, view = self.player, self.hero.view       # view: co-op, the battle as of this line
+        m = view[0] if view else self.foe or self.fallen
         fx = self.fx or {}
         hit = fx.get('who') if 'dx' in fx else None       # whose sprite is jolting right now
         self.scr.erase()
@@ -688,6 +712,13 @@ class BattleMixin:
                                      ('PSN', p.str < p.max_str)) if on]
         if flags:
             self.put(12, 44, ' '.join(flags[:3]), COLORS['magenta'] | curses.A_BOLD)
+        allies = [h for h in (self.hero.battle.heroes if self.hero.battle else [])
+                  if h is not self.hero]
+        if allies:                                        # who else is in the fight
+            names = '  '.join(f'{h.name.upper()[:10]} '
+                              f'{view[2].get(h, h.player.hp) if view else h.player.hp}'
+                              f'/{h.player.max_hp}' for h in allies)
+            self.put(15, 44, f' WITH {names} '[:34], COLORS['cyan'] | curses.A_BOLD)
         self.hp_bar(11, 44, self.shown_hp[1], p.max_hp, 26)
         self.put(12, 58, f'{max(0, self.shown_hp[1]):>3}/{p.max_hp:>3}', curses.A_BOLD)
         prev = xp_needed(p.level - 1) if p.level > 1 else 0

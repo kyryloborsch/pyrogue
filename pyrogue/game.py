@@ -2,7 +2,9 @@
 
 import curses
 import random
+import threading
 from collections import deque
+from contextlib import contextmanager
 
 from . import save, scores
 from .actions import ActionsMixin
@@ -10,48 +12,53 @@ from .battle import BattleMixin
 from .characters import BARD_BY
 from .constants import (
     ARROW_CHORDS, ARROWS, CHORD_DELAY, CHORD_STEPS, CORRIDOR, DIRS, DOOR, FLOOR,
-    KEYPAD_DIAGONALS, LOG_SIZE, MAP_H, MAP_W, NUMPAD, WALKABLE
+    KEYPAD_DIAGONALS, LOG_SIZE, MAP_H, MAP_W, NUMPAD, STAIRS, WALKABLE
 )
 from .dialogue import TalkMixin
 from .dungeon import DungeonMixin
+from .hero import Battle, Hero
 from .inventory import ItemsMixin
 from .items import Item, POTIONS, POTION_COLORS, SCROLLS, SYLLABLES, make_armor, make_weapon
 from .monsters import FORGET_DIST, FORGET_TURNS, WANDER_OUT_CHANCE
-from .player import Player, xp_needed
+from .player import xp_needed
 from .ui import UIMixin
 from .world import ENVIRONMENTS
+
+
+def hero_field(name):
+    """A field of the hero whose turn is being played, as if it belonged to the game."""
+    return property(lambda game: getattr(game.hero, name),
+                    lambda game, value: setattr(game.hero, name, value))
+
+
+# what each hero has for themselves, which the old saves kept on the game
+HERO_FIELDS = ('player', 'name', 'msgs', 'log', 'visible', 'battles', 'asleep', 'pending_key',
+               'shown_hp', 'fx', 'fallen')
 
 
 class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMixin):
     """One game, from depth 1 until the player wins, dies or quits."""
 
     def __init__(self, scr, name, seed=None):
-        self.scr = scr
+        self.start([Hero(name, scr)], seed)
+
+    def start(self, heroes, seed):
+        """Set up a new run for these heroes."""
+        self._ctx = threading.local()  # which hero this thread is playing for
+        self.heroes = heroes
         # the run's seed: the same seed makes the same dungeon (and, played the same way,
         # the same run)
         self.seed = self.new_seed() if seed is None else str(seed)
         random.seed(self.seed)
-        self.name = name
-        self.player = Player()
         self.depth = 0
         self.turn = 0
-        self.msgs = []
-        self.log = []                # event log: [turn, depth, text, times repeated]
         self.known = set()
         self.potion_look = dict(zip(POTIONS, random.sample(POTION_COLORS, len(POTIONS))))
         self.scroll_look = {s: self.random_title() for s in SCROLLS}
         self.game_over = None        # ('died', reason) | ('won',) | ('quit',) | ('saved',)
-        self.visible = set()
-        self.foes = []               # monsters in the current battle; foes[0] is the target
-        self.battles = 0             # battles fought (lets a sleeping player notice an attack)
-        self.asleep = False          # knocked out by sleeping gas
-        self.fallen = None           # last foe beaten, still shown while rewards are read out
-        self.shown_hp = [0, 0]       # HP values the battle bars are showing (for animation)
-        self.fx = None               # the hit being animated in battle (see damage_fx)
         self.npcs_met = set()        # kinds that have appeared; only merchants come back
         self.bard_depth = random.randint(2, BARD_BY)   # the bard turns up by this depth
-        self.weak_known = set()      # monster names whose weak spot the player has found
-        self.pending_key = None      # key read while waiting for a second arrow key
+        self.weak_known = set()      # monster names whose weak spot the party has found
         self.saved_depth = 0         # the depth last autosaved
         self.snapshot = None         # the game as it was at the start of this turn (bytes)
         self.traps = {}              # (x, y) -> Trap
@@ -59,28 +66,118 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         self.legend = set()          # map symbols seen so far (see LEGEND)
         self.floor_names = {}        # depth -> the name of that floor (a variant's, if it was one)
 
-        p = self.player
-        p.weapon = make_weapon('mace', 1)
-        p.armor = make_armor('ring mail', 1)
-        p.pack = [p.weapon, p.armor, Item('food')]
+        for h in heroes:
+            p = h.player
+            p.weapon = make_weapon('mace', 1)
+            p.armor = make_armor('ring mail', 1)
+            p.pack = [p.weapon, p.armor, Item('food')]
         self.new_level()
-        self.msg(f'Welcome to the Dungeons of Doom, {name}! Someone is waiting to talk to you (&).')
-        self.record(f'This run\'s seed is {self.seed}.')
+        self.place_party()
+        for h in heroes:
+            with self.as_hero(h):
+                self.msg(f'Welcome to the Dungeons of Doom, {h.name}! '
+                         'Someone is waiting to talk to you (&).')
+                self.record(f'This run\'s seed is {self.seed}.')
 
     @classmethod
     def restore(cls, scr, state):
         """A game picked up from a save."""
         game = cls.__new__(cls)
+        game._ctx = threading.local()
         game.legend = set()          # saves from before the legend existed don't have one
         game.floor_names = {}        # nor floor names
+        if 'heroes' not in state:    # saves from before co-op kept the hero on the game
+            state = dict(state)
+            hero = Hero(state['name'])
+            for f in HERO_FIELDS:
+                if f in state:
+                    setattr(hero, f, state.pop(f))
+            state.pop('foes', None)
+            state['heroes'] = [hero]
         vars(game).update(state)
         if 'seed' not in state:      # nor a seed: the levels still to come get a new one
             game.seed = cls.new_seed()
             game.record(f'This run\'s seed is {game.seed}.')
-        game.scr = scr
-        game.snapshot, game.foes, game.fallen, game.fx = None, [], None, None
+        hero = game.heroes[0]
+        hero.scr, hero.battle, hero.fallen, hero.fx, hero.view = scr, None, None, None, None
+        game.snapshot = None
         game.msg(f'Welcome back, {game.name}! You are on depth {game.depth}.')
         return game
+
+    # ------------------------------------------------------------- heroes
+    @property
+    def hero(self):
+        """The hero whose turn is being played."""
+        return getattr(self._ctx, 'hero', None) or self.heroes[0]
+
+    @contextmanager
+    def as_hero(self, hero):
+        """Play for another hero for a while: self.player and the rest become theirs."""
+        old = getattr(self._ctx, 'hero', None)
+        self._ctx.hero = hero
+        try:
+            yield
+        finally:
+            self._ctx.hero = old
+
+    @property
+    def foes(self):
+        """The monsters in the current battle; foes[0] is the target."""
+        b = self.hero.battle
+        return b.foes if b else []
+
+    @foes.setter
+    def foes(self, foes):
+        self.hero.battle = Battle(foes, [self.hero]) if foes else None
+
+    def party(self):
+        """The heroes on the map."""
+        return [h for h in self.heroes if h.state == 'active']
+
+    def hero_at(self, x, y):
+        return next((h for h in self.party() if (h.player.x, h.player.y) == (x, y)), None)
+
+    def nearest_hero(self, x, y):
+        """The hero on the map nearest to (x, y), and how many steps away."""
+        return min(((h, max(abs(h.player.x - x), abs(h.player.y - y))) for h in self.party()),
+                   key=lambda pair: pair[1], default=(None, None))
+
+    def party_visible(self):
+        """Every square some hero on the map can see."""
+        heroes = self.party()
+        if len(heroes) == 1:
+            return heroes[0].visible
+        return set().union(*(h.visible for h in heroes))
+
+    def battle_of(self, m):
+        """The battle a monster is in, if any."""
+        return next((h.battle for h in self.heroes if h.battle and m in h.battle.foes), None)
+
+    def place_party(self):
+        """Put the other heroes on the free squares nearest the first one."""
+        if len(self.party()) < 2:
+            return
+        lead, *others = self.party()
+        start = (lead.player.x, lead.player.y)
+        seen, q = {start}, deque([start])
+        while q and others:
+            x, y = q.popleft()
+            if ((x, y) != start and not self.occupied(x, y) and not self.item_at(x, y)
+                    and (x, y) not in self.traps and self.tiles[y][x] != STAIRS):
+                h = others.pop(0)
+                h.player.x, h.player.y = x, y
+            for dx, dy in DIRS.values():
+                n = (x + dx, y + dy)
+                if n not in seen and self.walkable(*n):
+                    seen.add(n)
+                    q.append(n)
+        for h in self.party():
+            with self.as_hero(h):
+                self.compute_fov()
+
+    def pause(self, ms):
+        """Hold an animation frame on screen for a moment."""
+        curses.napms(ms)
 
     # ------------------------------------------------------------ helpers
     @staticmethod
@@ -120,8 +217,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         return next((i for i in self.items if i.x == x and i.y == y), None)
 
     def occupied(self, x, y):
-        return (self.monster_at(x, y) or self.npc_at(x, y)
-                or (x, y) == (self.player.x, self.player.y))
+        return self.monster_at(x, y) or self.npc_at(x, y) or self.hero_at(x, y)
 
     def visible_monsters(self):
         return [m for m in self.monsters if (m.x, m.y) in self.visible]
@@ -202,9 +298,9 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
 
     # ------------------------------------------------------------ monsters
     def dist_map(self):
-        p = self.player
-        dist = {(p.x, p.y): 0}
-        q = deque([(p.x, p.y)])
+        """Steps from the nearest hero to every square within 30 of one."""
+        dist = {(h.player.x, h.player.y): 0 for h in self.party()}
+        q = deque(dist)
         while q:
             x, y = q.popleft()
             d = dist[(x, y)]
@@ -218,8 +314,11 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         return dist
 
     def monsters_act(self):
-        p = self.player
+        if not self.party():
+            return
         dist = self.dist_map()
+        seen = self.party_visible()
+        fighting = [h for h in self.party() if h.battle]
         for m in list(self.monsters):
             if self.game_over:
                 return
@@ -232,13 +331,17 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
                 continue
             if 'regen' in m.flags and m.hp < m.max_hp:
                 m.hp += 1
-            if m in self.foes:
+            if self.battle_of(m):
                 continue
-            near = max(abs(m.x - p.x), abs(m.y - p.y))
+            h, near = self.nearest_hero(m.x, m.y)
+            if h is None:
+                return
             d = dist.get((m.x, m.y))
             if not m.awake:
-                if ((m.x, m.y) in self.visible and random.random() < 0.3) or \
-                        (self.foes and near <= 7 and random.random() < 0.25):   # battle noise
+                noise = any(max(abs(m.x - f.player.x), abs(m.y - f.player.y)) <= 7
+                            for f in fighting)
+                if ((m.x, m.y) in seen and random.random() < 0.3) or \
+                        (noise and random.random() < 0.25):          # battle noise
                     m.alert()
                 else:
                     if m.roaming and random.random() < 0.5:
@@ -246,7 +349,7 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
                     continue
             if 'boss' in m.flags and near > 1:
                 continue                 # bosses wait in their lair
-            if (m.x, m.y) in self.visible or (d is not None and d <= FORGET_DIST):
+            if (m.x, m.y) in seen or (d is not None and d <= FORGET_DIST):
                 m.lost = 0
             else:
                 m.lost += 1
@@ -257,11 +360,11 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
                 self.monster_step(m, *random.choice(list(DIRS.values())))
                 continue
             if near == 1:
-                if self.foes:
-                    self.foes.append(m)
-                    self.msg(f'A {self.called(m)} joined the battle!')
+                if h.battle:
+                    h.battle.foes.append(m)
+                    self.foe_joined(h, m)
                 else:
-                    self.battle(m, ambush=True)
+                    self.ambush(h, m)
                 continue
             if d is None:
                 if random.random() < 0.5:
@@ -276,11 +379,19 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
                 m.x += dx
                 m.y += dy
 
+    def foe_joined(self, h, m):
+        """A monster walked up to a hero's battle and joined it."""
+        self.msg(f'A {self.called(m)} joined the battle!')
+
+    def ambush(self, h, m):
+        """A monster walked up to a hero and attacked."""
+        self.battle(m, ambush=True)
+
     def npcs_act(self):
         """Friendly characters stroll about their room, but hold still while you're beside them."""
-        p = self.player
         for npc in self.npcs:
-            if max(abs(npc.x - p.x), abs(npc.y - p.y)) <= 1 or random.random() < 0.7:
+            _h, near = self.nearest_hero(npc.x, npc.y)
+            if (near is not None and near <= 1) or random.random() < 0.7:
                 continue
             dx, dy = random.choice(list(DIRS.values()))
             n = (npc.x + dx, npc.y + dy)
@@ -397,3 +508,8 @@ class Game(DungeonMixin, ActionsMixin, ItemsMixin, BattleMixin, TalkMixin, UIMix
         self.wait_key()
         self.ending_screen()
         self.full_screen(scores.table(scores.load(), mark=entry and entry['rank']))
+
+
+# self.player, self.scr and the rest are the current hero's
+for _field in HERO_FIELDS + ('scr',):
+    setattr(Game, _field, hero_field(_field))

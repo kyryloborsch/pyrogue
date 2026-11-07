@@ -31,13 +31,14 @@ ARMORS = [('leather armor', 2), ('studded leather', 3), ('ring mail', 3),
 POTIONS = ['healing', 'extra healing', 'mana', 'strength', 'poison', 'confusion', 'raise level']
 POTION_WEIGHTS = [30, 10, 16, 12, 15, 15, 6]
 POTION_PRICES = {'healing': 30, 'extra healing': 80, 'mana': 50, 'strength': 120,
-                 'poison': 5, 'confusion': 5, 'raise level': 150}
+                 'poison': 15, 'confusion': 15, 'raise level': 150}
 SCROLLS = ['magic mapping', 'teleportation', 'enchant weapon', 'enchant armor',
            'identify', 'aggravate monsters', 'detect traps']
 SCROLL_WEIGHTS = [12, 12, 15, 15, 25, 8, 12]
 SCROLL_PRICES = {'magic mapping': 50, 'teleportation': 40, 'enchant weapon': 70,
-                 'enchant armor': 70, 'identify': 25, 'aggravate monsters': 5,
+                 'enchant armor': 70, 'identify': 25, 'aggravate monsters': 15,
                  'detect traps': 30}
+UNKNOWN_PRICE = 30               # what any potion or scroll you haven't identified is worth
 POTION_COLORS = ['red', 'blue', 'green', 'amber', 'violet', 'turquoise', 'black',
                  'pink', 'white', 'orange', 'grey', 'golden']
 SYLLABLES = ['ab', 'zok', 'ra', 'nix', 'vel', 'tor', 'um', 'ka', 'zim', 'ol',

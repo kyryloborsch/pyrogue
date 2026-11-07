@@ -32,11 +32,11 @@ def load():
                   key=lambda e: -e['score'])
 
 
-def add(game):
-    """Record a finished run. Returns the new entry (with its 'rank'), or None if the file
-    couldn't be written."""
+def add(game, over=None):
+    """Record a finished run: game.game_over, or over for one hero of a co-op game. Returns
+    the new entry (with its 'rank'), or None if the file couldn't be written."""
     p = game.player
-    result, *why = game.game_over
+    result, *why = over or game.game_over
     entry = {
         'name': game.name, 'result': result, 'reason': why[0] if why else '',
         'depth': game.depth, 'level': p.level, 'gold': p.gold, 'turns': game.turn,
